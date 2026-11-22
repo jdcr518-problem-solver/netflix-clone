@@ -12,6 +12,9 @@ export function Artwork({ src, alt, className, loading = 'lazy' }: {
       <span>{alt}</span><small>Artwork unavailable</small>
     </div>;
   }
-  return <img src={src} alt={alt} className={className} loading={loading}
+  const tmdb = src.startsWith('https://image.tmdb.org/t/p/');
+  const poster = src.includes('/w500/');
+  const sizes = poster ? [342,500,780] : [300,780,1280];
+  return <img src={src} srcSet={tmdb?sizes.map(w=>`${src.replace(/\/w\d+\//,`/w${w}/`)} ${w}w`).join(', '):undefined} sizes={tmdb?(poster?'(max-width:600px) 130px, 180px':className==='billboard-image'?'100vw':'(max-width:600px) 68vw, 300px'):undefined} alt={alt} className={className} loading={loading}
     decoding="async" onError={() => setFailedSource(src)} />;
 }

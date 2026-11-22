@@ -14,6 +14,10 @@ export const DEMO_EPISODES:Episode[] = [
  {id:'demo-e3',season:2,number:1,title:'Unavailable episode example',source:unavailable('demo-e3')},
 ];
 // Catalog metadata does not grant playback rights. Demo sources live only in /player-demo.
-export function sourceFor(id:number):MediaSource { return unavailable(`movie-${id}`); }
+export const AUTHORIZED_CATALOG_SOURCES: Record<string, MediaSource> = {};
+export function sourceFor(id:number):MediaSource {
+ const key=id<0 ? `${Math.abs(id)%2?'tv':'movie'}:${Math.floor(Math.abs(id)/2)}` : `legacy:${id}`;
+ return AUTHORIZED_CATALOG_SOURCES[key] || unavailable(key);
+}
 export function canPlay(id:number):boolean { return sourceFor(id).availability === 'available'; }
 export function resolveStreamSource(id:number):MediaSource { return sourceFor(id); }

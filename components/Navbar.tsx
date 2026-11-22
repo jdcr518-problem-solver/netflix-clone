@@ -75,7 +75,7 @@ export function Navbar({ currentTab, onSelectTab, searchQuery, onSearchChange }:
                 autoFocus
                 value={searchQuery}
                 onChange={(e) => onSearchChange(e.target.value)}
-                placeholder="Titles, people, genres"
+                placeholder="Search movies and TV"
                 className="search-input"
               />
               {searchQuery && (

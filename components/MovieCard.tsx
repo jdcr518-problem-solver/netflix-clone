@@ -2,6 +2,7 @@
 
 import { canPlay } from '../lib/streaming';
 import { Artwork } from './Artwork';
+import { CardTitle } from './CardTitle';
 import React from 'react';
 import { Play, Plus, Check, ChevronDown, ThumbsUp } from 'lucide-react';
 import { MediaItem } from '../types/movie';
@@ -31,7 +32,7 @@ export function MovieCard({
           loading="lazy"
         />
 
-        <div className="card-title-label">{item.title}</div>
+        <CardTitle item={item} />
 
         {item.isOriginal && (
           <span className="card-brandmark" title="StreamFrame Original">
@@ -91,9 +92,9 @@ export function MovieCard({
           </div>
 
           <div className="card-info-meta">
-            <span className="match-score">{item.matchScore}% Match</span>
+            <span className="match-score">{item.rating!==undefined?`${item.rating.toFixed(1)} / 10`:`${item.matchScore}% Match`}</span>
             <span className="card-rating">{item.maturityRating}</span>
-            <span className="card-duration">{item.duration || `${item.seasons} Seasons`}</span>
+            <span className="card-duration">{item.duration || (item.seasons ? `${item.seasons} Seasons` : '')}</span>
             <span className="badge-hd">HD</span>
           </div>
 

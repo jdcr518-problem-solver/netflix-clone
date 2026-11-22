@@ -30,6 +30,18 @@ Catalog metadata and playback authorization are separate. Homepage titles have n
 
 Artwork source URLs and dimensions are recorded in `public/artwork/sources.json`. Publisher hosting is not a grant of commercial reuse rights. External sample streams require internet access. Fullscreen, Picture-in-Picture and audio-track availability depend on browser and source support.
 
-The TMDB adapter is preparatory; no TMDB key is required for the local catalog. Never commit secrets or `.env` files.
+## Live TMDB catalog
+
+Create `.env.local` using `.env.example` and set `TMDB_READ_ACCESS_TOKEN` to your TMDB API read access token. Restart the server after changing it. The token stays on the server; never use a NEXT_PUBLIC variable or commit environment files.
+
+Ten homepage rows, title details, cast, trailers, recommendations, seasons, episodes and debounced paginated search use TMDB API v3. Posters use portrait image sizes and backdrops use landscape sizes. Movie and TV IDs occupy separate stable namespaces. Existing watchlist IDs and playback progress are retained; legacy saved titles remain archived metadata until removed.
+
+Catalog/details cache for one hour, genres for 24 hours, and search for five minutes. Next.js revalidates on requests after expiry, not with a background scheduler; an already-open page needs a reload to see updates. Development-only manual refresh: `Invoke-RestMethod -Method Post http://localhost:3000/api/revalidate`, then reload. Production rejects this endpoint.
+
+Register only licensed sources in `AUTHORIZED_CATALOG_SOURCES` in `lib/streaming.ts`, keyed by `movie:TMDB_ID` or `tv:TMDB_ID`. The registry is empty by default. TMDB supplies metadata and trailer links, not full-movie streaming rights.
+
+TMDB attribution appears in the footer. Review TMDB licensing before commercial deployment. Missing images show a local fallback; unavailable API requests display a safe error without leaking credentials.
 
 TypeScript and production build passed during development. Browser checks covered MP4/HLS playback, captions, quality selection, seeking, episode navigation, resume and error states. Fullscreen/PiP and comprehensive device testing remain pending. The current Next/PostCSS dependency tree has audit findings that should be reviewed before deployment.
+
+Movie/TV landscape cards load original TMDB PNG title logos near the viewport. English logos are preferred, then language-neutral and other-language artwork. Logo metadata is cached server-side for 24 hours and duplicate card requests are shared within a page session. Detail requests append image metadata. Missing or failed logos retain the regular accessible text title; portrait ranking cards retain their poster artwork. Screenshots: visual-review/logos/.

@@ -39,18 +39,11 @@ export function BillboardHero({
       <div className="billboard-content">
         <div className="billboard-eyebrow">
           <span className="series-brandmark">S</span>
-          <span className="series-label">SERIES</span>
+          <span className="series-label">{item.type==='series'?'SERIES':'FILM'}</span>
         </div>
 
         <div className="billboard-title-wrapper">
-          <div className="billboard-title-logo">
-            <span className="title-word word-1">
-              <span className="cap">S</span>TRANGE<span className="cap">R</span>
-            </span>
-            <span className="title-word word-2">
-              <span className="cap">T</span>HING<span className="cap">S</span>
-            </span>
-          </div>
+          <div className="billboard-title-logo">{item.tmdbId===66732 ? <><span className="title-word word-1">STRANGER</span><span className="title-word word-2">THINGS</span></> : <span className="title-word word-1">{item.title}</span>}</div>
         </div>
 
         <div className="billboard-top10">
@@ -58,7 +51,7 @@ export function BillboardHero({
             <span className="top10-top">TOP</span>
             <span className="top10-num">10</span>
           </div>
-          <span className="top10-text">{item.badgeText || '#1 in TV Shows Today'}</span>
+          <span className="top10-text">{item.badgeText || 'Featured on StreamFrame'}</span>
         </div>
 
         <p className="billboard-synopsis">{item.overview}</p>

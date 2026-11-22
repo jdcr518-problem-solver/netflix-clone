@@ -1,10 +1,9 @@
 node_modules/
 .next/
 .next-*/
-out/
-dist/
+publish-checkout/
 *.tsbuildinfo
 .env*
 !.env.example
 *.log
-.DS_Store
+scratch/

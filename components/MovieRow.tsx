@@ -53,6 +53,7 @@ export function MovieRow({
 
   return (
     <section className="movie-row-section" id={row.id}>
+      {row.items.length===0&&<p role="status" style={{padding:"16px 4%"}}>Titles are temporarily unavailable.</p>}
       <h2 className="row-title">
         <span className="row-title-text">{row.title}</span>
         <span className="row-explore-arrow">

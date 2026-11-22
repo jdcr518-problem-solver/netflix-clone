@@ -1,78 +1,34 @@
-import { MediaItem } from '../types/movie';
-import { ALL_CATALOG_ITEMS } from './catalog';
-import { RIGHTS_CLEARED_STREAMS } from './streaming';
-
-const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
-import { tmdbImage } from './tmdb-images';
-
-function getApiKey(): string | undefined {
-  return process.env.NEXT_PUBLIC_TMDB_API_KEY || process.env.TMDB_API_KEY;
+import 'server-only';
+import {selectTitleLogo} from './title-logos';
+import {canPlay} from './streaming';
+import {MediaItem,CategoryRow} from '../types/movie';
+import {tmdbImage} from './tmdb-images';
+const BASE='https://api.themoviedb.org/3';
+type Raw=Record<string,any>;
+export async function tmdb(path:string,params:Record<string,string>={},ttl=3600):Promise<Raw>{
+ const token=process.env.TMDB_READ_ACCESS_TOKEN;if(!token)throw new Error('Catalog is not configured.');
+ const url=new URL(BASE+path);url.searchParams.set('language','en-US');Object.entries(params).forEach(([k,v])=>v ? url.searchParams.set(k,v) : url.searchParams.delete(k));
+ try{const res=await fetch(url,{headers:{Authorization:`Bearer ${token}`,Accept:'application/json'},signal:AbortSignal.timeout(10000),next:{revalidate:ttl,tags:['tmdb-catalog']}});if(!res.ok)throw new Error(res.status===429?'Catalog is busy. Please try again shortly.':'Catalog is temporarily unavailable.');return await res.json();}catch(e){throw new Error(e instanceof Error&&e.message.startsWith('Catalog')?e.message:'Catalog is temporarily unavailable.');}
 }
-
-export async function fetchTrending(mediaType: 'all' | 'movie' | 'tv' = 'all'): Promise<MediaItem[]> {
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    return ALL_CATALOG_ITEMS;
-  }
-
-  try {
-    const res = await fetch(`${TMDB_BASE_URL}/trending/${mediaType}/week?api_key=${apiKey}`, {
-      next: { revalidate: 3600 },
-    });
-    if (!res.ok) throw new Error(`TMDB error: ${res.statusText}`);
-    const data = await res.json();
-    return (data.results || []).filter((item: any) => item.media_type !== 'person').map(formatTmdbItem);
-  } catch (err) {
-    console.warn('TMDB fetch failed, falling back to local catalog:', err);
-    return ALL_CATALOG_ITEMS;
-  }
+export const contentId=(id:number,type:'movie'|'tv')=>-(id*2+(type==='tv'?1:0));
+export function normalize(d:Raw,type:'movie'|'tv',genres:Record<number,string>={}):MediaItem{
+ const date=d.release_date||d.first_air_date||'';const runtime=d.runtime||d.episode_run_time?.[0];
+ return {id:contentId(d.id,type),tmdbId:d.id,contentKey:`${type}:${d.id}`,title:d.title||d.name||'Untitled',type:type==='tv'?'series':'movie',overview:d.overview||'No synopsis available.',releaseDate:date,year:date?Number(date.slice(0,4)):0,backdropUrl:tmdbImage(d.backdrop_path,'backdrop'),posterUrl:tmdbImage(d.poster_path,'poster'),titleLogo:d.images?selectTitleLogo(d.images.logos):undefined,genres:d.genres?.map((g:Raw)=>g.name)||d.genre_ids?.map((id:number)=>genres[id]).filter(Boolean)||[],rating:typeof d.vote_average==='number'?d.vote_average:undefined,matchScore:Math.round((d.vote_average||0)*10),maturityRating:d.adult?'18+':'Not rated',duration:runtime?`${Math.floor(runtime/60)}h ${runtime%60}m`:undefined,runtime,seasons:d.number_of_seasons,cast:d.credits?.cast?.slice(0,10).map((p:Raw)=>p.name)||[],creator:d.created_by?.map((p:Raw)=>p.name).join(', ')||d.credits?.crew?.find((p:Raw)=>p.job==='Director')?.name,videoUrl:'',playbackAvailable:canPlay(contentId(d.id,type))};
 }
-
-export async function searchTitles(query: string): Promise<MediaItem[]> {
-  if (!query.trim()) return [];
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    const q = query.toLowerCase();
-    return ALL_CATALOG_ITEMS.filter(
-      (item) =>
-        item.title.toLowerCase().includes(q) ||
-        item.overview.toLowerCase().includes(q) ||
-        item.genres.some((g) => g.toLowerCase().includes(q))
-    );
-  }
-
-  try {
-    const res = await fetch(`${TMDB_BASE_URL}/search/multi?api_key=${apiKey}&query=${encodeURIComponent(query)}`);
-    if (!res.ok) throw new Error(`TMDB error: ${res.statusText}`);
-    const data = await res.json();
-    return (data.results || []).filter((item: any) => item.media_type !== 'person').map(formatTmdbItem);
-  } catch (err) {
-    console.warn('TMDB search failed, falling back to local search:', err);
-    const q = query.toLowerCase();
-    return ALL_CATALOG_ITEMS.filter(
-      (item) =>
-        item.title.toLowerCase().includes(q) ||
-        item.overview.toLowerCase().includes(q) ||
-        item.genres.some((g) => g.toLowerCase().includes(q))
-    );
-  }
+async function genres(){const [m,t]=await Promise.all([tmdb('/genre/movie/list',{},86400),tmdb('/genre/tv/list',{},86400)]);return Object.fromEntries([...m.genres,...t.genres].map((g:Raw)=>[g.id,g.name]));}
+export async function list(path:string,type:'movie'|'tv',params:Record<string,string>={}){const [data,g]=await Promise.all([tmdb(path,params),genres()]);return {items:(data.results||[]).filter((d:Raw)=>!d.adult).map((d:Raw)=>normalize(d,type,g)),page:data.page||1,totalPages:Math.min(data.total_pages||1,500)};}
+export async function catalog(){
+ const definitions:[string,string,'movie'|'tv',Record<string,string>?][]=[['Trending Now','/trending/movie/week','movie'],['Popular on StreamFrame','/movie/popular','movie'],['Top 10 Movies','/movie/top_rated','movie'],['Top 10 TV Shows','/trending/tv/week','tv'],['Action Movies','/discover/movie','movie',{with_genres:'28'}],['Science Fiction','/discover/movie','movie',{with_genres:'878'}],['Comedy','/discover/movie','movie',{with_genres:'35'}],['Horror','/discover/movie','movie',{with_genres:'27'}],['Recently Released','/movie/now_playing','movie'],['Upcoming Movies','/movie/upcoming','movie']];
+ let failures=0;const rows=await Promise.all(definitions.map(async([title,path,type,params],i)=>{try{const data=await list(path,type,params);const ranked=i===2||i===3;return {id:`tmdb-row-${i}`,title,type:ranked?'top10':'landscape',items:data.items.slice(0,ranked?10:20).map((item:MediaItem,index:number)=>({...item,isTop10:ranked,rank:ranked?index+1:undefined}))} as CategoryRow;}catch{failures++;return {id:`tmdb-row-${i}`,title,type:'landscape',items:[]} as CategoryRow;}}));
+ let hero:MediaItem|undefined;try{hero=normalize(await tmdb('/tv/66732',{append_to_response:'credits'}),'tv');hero.backdropUrl='/artwork/101-backdrop.jpg'; /* Preserve approved hero artwork. */}catch{hero=rows.flatMap(r=>r.items).find(i=>i.backdropUrl);}
+ return {rows,hero:hero||null,error:failures?'Some catalog sections are temporarily unavailable.':null};
 }
+export async function search(query:string,page:string){const [data,g]=await Promise.all([tmdb('/search/multi',{query,page,include_adult:'false'},300),genres()]);return {items:(data.results||[]).filter((d:Raw)=>['movie','tv'].includes(d.media_type)&&!d.adult).map((d:Raw)=>normalize(d,d.media_type,g)),page:data.page,totalPages:Math.min(data.total_pages||1,500)};}
+export async function details(type:'movie'|'tv',id:number){const d=await tmdb(`/${type}/${id}`,{append_to_response:'credits,videos,similar,recommendations,images',include_image_language:'en,null'});return {item:{...normalize(d,type),titleLogo:selectTitleLogo(d.images?.logos)||await titleLogo(type,id).catch(()=>null)},seasons:(d.seasons||[]).filter((s:Raw)=>s.season_number>0).map((s:Raw)=>({number:s.season_number,name:s.name,count:s.episode_count})),videos:(d.videos?.results||[]).filter((v:Raw)=>v.site==='YouTube'&&/^[\w-]{11}$/.test(v.key)&&['Trailer','Teaser'].includes(v.type)).map((v:Raw)=>({name:v.name,url:`https://www.youtube.com/watch?v=${v.key}`})),similar:[...new Map([...(d.recommendations?.results||[]),...(d.similar?.results||[])].filter((x:Raw)=>!x.adult).map((x:Raw)=>[x.id,normalize(x,type)])).values()].slice(0,12)};}
+export async function season(id:number,n:number){const d=await tmdb(`/tv/${id}/season/${n}`);return {episodes:(d.episodes||[]).map((e:Raw)=>({id:`tv:${id}:season:${n}:episode:${e.episode_number}`,number:e.episode_number,title:e.name,overview:e.overview,runtime:e.runtime,artwork:tmdbImage(e.still_path,'backdrop'),available:false}))};}
 
-function formatTmdbItem(item: any): MediaItem {
-  const isMovie = item.media_type === 'movie' || !!item.title;
-  return {
-    id: item.id,
-    title: item.title || item.name || 'Untitled',
-    type: isMovie ? 'movie' : 'series',
-    overview: item.overview || 'No synopsis available.',
-    backdropUrl: tmdbImage(item.backdrop_path, 'backdrop'),
-    posterUrl: tmdbImage(item.poster_path, 'poster'),
-    matchScore: Math.round((item.vote_average || 7) * 10),
-    year: parseInt((item.release_date || item.first_air_date || '2024').slice(0, 4), 10),
-    maturityRating: item.adult ? '18+' : '13+',
-    duration: isMovie ? '2h 04m' : undefined,
-    seasons: !isMovie ? 1 : undefined,
-    genres: ['Featured'],
-    videoUrl: RIGHTS_CLEARED_STREAMS.default,
-  };
+
+export async function titleLogo(type: 'movie' | 'tv', id: number) {
+ const data = await tmdb(`/${type}/${id}/images`, {language: ''}, 86400);
+ return selectTitleLogo(data.logos);
 }

@@ -6,6 +6,8 @@ import { MovieCard } from './MovieCard';
 
 interface SearchDrawerProps {
   title: string;
+  busy?: boolean;
+  filters?: React.ReactNode;
   items: MediaItem[];
   watchlist: number[];
   onPlay: (item: MediaItem) => void;
@@ -15,6 +17,8 @@ interface SearchDrawerProps {
 
 export function SearchDrawer({
   title,
+  busy = false,
+  filters,
   items,
   watchlist,
   onPlay,
@@ -23,12 +27,13 @@ export function SearchDrawer({
 }: SearchDrawerProps) {
   return (
     <section className="search-results-section">
+      {filters}
       <div className="search-section-header">
         <h2 className="search-title">{title}</h2>
-        <span className="results-count">{items.length} titles found</span>
+        <span className="results-count">{busy ? 'Loadingâ€¦' : `${items.length} titles found`}</span>
       </div>
 
-      {items.length === 0 ? (
+      {busy && items.length === 0 ? <p role="status">Loading titlesâ€¦</p> : items.length === 0 ? (
         <div className="search-empty-state">
           <p>Your search did not have any matches.</p>
           <p className="empty-subtext">Suggestions: Try different keywords, genres, or check your spelling.</p>

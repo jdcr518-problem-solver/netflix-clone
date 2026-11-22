@@ -1,6 +1,2 @@
 /** @type {import('next').NextConfig} */
-const nextConfig = {
-  devIndicators: false,
-};
-
-module.exports = nextConfig;
+module.exports = {devIndicators:false,images:{remotePatterns:[{protocol:'https',hostname:'image.tmdb.org',pathname:'/t/p/**'}]}};

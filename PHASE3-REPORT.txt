@@ -1,0 +1,67 @@
+StreamFrame Phase 3 implementation report
+
+Completed
+- Server-only TMDB API v3 bearer adapter, typed normalized movie/TV identifiers, timeout and safe errors.
+- Ten live homepage carousels; top-10 ordering, portrait posters and responsive landscape backdrops.
+- Debounced title search, movie/TV results only, incremental pagination.
+- Movie and TV category pages with live selectable genre discovery.
+- Movie details, runtime, cast/creator, trailer links, recommendations; real TV seasons and episode metadata.
+- Original approved hero artwork and existing layout preserved. Ratings and catalog row contents now reflect TMDB rather than mock values.
+- Existing local watchlist and playback storage retained. Real title metadata is saved alongside stable IDs.
+- Authorized source registry stays separate. Empty by default; no commercial title maps to demo clips.
+- TMDB footer attribution, environment example, loading/error states, artwork fallback and responsive image sizes.
+
+Refresh behavior
+Homepage/details revalidate after one hour when requested; genres after 24 hours and searches after five minutes. Open tabs need reloads. Development POST /api/revalidate invalidates catalog cache. This endpoint is disabled in production. There is no always-running worker or deployment scheduler; a scheduler is needed only for refreshes without traffic.
+
+Browser verification
+Live search returned Stranger Things (17 results), excluding people. Details showed cast, trailers, five seasons, eight season-one episodes and nine season-two episodes. Selecting season two loaded MADMAX and the corresponding episode list. Movie details displayed runtime and credits. Watchlist survived reload; the test entry was removed afterward. Movies/Comedy returned comedy titles. Search page two returned 20 titles. Development revalidation returned true.
+MP4 flower sample played to its end (5.055 seconds). HLS Big Buck Bunny played with readyState 4 and a duration of 634.584 seconds; quality options were present and 480p was selected. Continue Watching retained episode progress and resumed it. Catalog Play controls remained disabled without registered sources.
+Desktop checked at 1000x664 and mobile at 390x844; mobile document width equaled viewport width. Full-page, desktop, mobile, Top 10, comparison and HLS screenshots are in visual-review/tmdb.
+
+Remaining limitations
+- TMDB supplies metadata, not streaming rights. No licensed commercial streams were supplied.
+- Category/genre views currently show the first page; title search has incremental pagination.
+- Legacy saved catalog entries retain their original IDs/metadata rather than being guessed into TMDB matches. Re-saving the same legacy title from TMDB can retain both entries; remove the older entry manually. Existing playback progress is untouched.
+- Missing upstream art uses a title-labelled fallback. Rankings are TMDB top-rated movies and weekly trending TV, not Netflix audience rankings.
+- The hero is fixed to the approved Stranger Things artwork; metadata is live. Row titles/content, rating text, truthful featured label and attribution differ from the prior static screenshot. No pixel-perfect claim.
+- Fullscreen/PiP and exhaustive device/network-failure testing were not repeated during Phase 3.
+- Changes are in the main workspace, which has no .git directory. publish-checkout retains the earlier published commit; Phase 3 has not been pushed.
+
+Run
+npm ci
+Set TMDB_READ_ACCESS_TOKEN in .env.local using .env.example (already configured locally).
+npm run dev
+Open http://localhost:3000 and /player-demo.
+Production: npm run build, then npm run start.
+Never commit .env.local or copy the token into NEXT_PUBLIC variables.
+
+Modified or added application files (compared with prior published checkout)
+- app\error.tsx
+- app\globals.css
+- app\loading.tsx
+- app\page.tsx
+- app\api\revalidate\route.ts
+- app\api\tmdb\route.ts
+- components\Artwork.tsx
+- components\BillboardHero.tsx
+- components\DetailModal.tsx
+- components\HomeClient.tsx
+- components\MovieCard.tsx
+- components\MovieRow.tsx
+- components\Navbar.tsx
+- components\SearchDrawer.tsx
+- components\Top10Card.tsx
+- lib\streaming.ts
+- lib\tmdb.ts
+- types\movie.ts
+- package.json
+- package-lock.json
+- next.config.js
+- tsconfig.json
+- .gitignore
+- .env.example
+- README.md
+- public/tmdb-logo.svg
+
+Final validation: npm run build PASSED; npx tsc --noEmit PASSED; client bundle credential matches: 0. Production preview running at http://127.0.0.1:4321.

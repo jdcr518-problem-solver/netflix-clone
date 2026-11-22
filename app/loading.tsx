@@ -1,0 +1,1 @@
+export default function Loading(){return <main aria-label="Loading catalog" style={{padding:'100px 4%',minHeight:'100vh'}}><div style={{height:400,background:'#202020',borderRadius:4}}/><p role="status" style={{marginTop:24}}>Loading catalog…</p></main>;}

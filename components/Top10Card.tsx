@@ -26,7 +26,7 @@ export function Top10Card({
   return (
     <div className="top10-card" onClick={() => onOpenDetails(item)}>
       <div className="top10-wrapper">
-        <div className="top10-number" aria-hidden="true">{rank}</div>
+        <div className={`top10-number ${rank>=10?"rank-double":""}`} aria-hidden="true">{rank}</div>
 
         {/* Overlapping Poster Card */}
         <div className="top10-poster-container">
