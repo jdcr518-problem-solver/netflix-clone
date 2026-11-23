@@ -53,6 +53,24 @@ test('TMDB requires one exact title, year, director, runtime and pinned ID',()=>
   assert.equal(uniqueMatch(candidate,edition,[{...match,runtime:20}]),undefined);
 });
 
+test('TMDB unavailability records a retryable import error without publishing',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'sf-metadata-outage-'));
+  try {
+    let mediaChecks=0;
+    const result=await synchronize(directory,config,{
+      discover:async()=>({ids:[candidate.id],hasMore:false}),
+      get:async()=>candidate,
+      matches:async()=>{throw new Error('Catalog is temporarily unavailable.');},
+      check:async()=>{mediaChecks++;throw new Error('Unexpected media check');},
+    },'now');
+    assert.equal(result.state.history[0].status,'partial');
+    assert.equal(result.state.candidates[0].status,'import-error');
+    assert.equal(result.state.history[0].published,0);
+    assert.equal(mediaChecks,0);
+    await assert.rejects(readFile(join(directory,'sources.local.json')),{code:'ENOENT'});
+  } finally {await rm(directory,{recursive:true,force:true});}
+});
+
 test('HLS compatibility probes check timing, CORS and only scoped segments',async()=>{
   const hls={...edition,url:'https://test-streams.mux.dev/fixture/film.m3u8',format:'hls' as const};
   const segment=new Uint8Array(1024);segment[0]=0x47;segment[188]=0x47;
