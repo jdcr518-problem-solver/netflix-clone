@@ -53,3 +53,5 @@ operator commands, safe content migration, rollback and hosting readiness, see
 [Phase 9A database guide](docs/phase9a-database.md). Run `npm test` for all suites.
 Production catalog playback requires an explicitly configured PostgreSQL reader;
 it never falls back to local JSON. The separate demo player remains unchanged.
+
+For protected playback, package preparation, pricing assumptions, and the operator calculator, see [Production media delivery](docs/phase9b-hosting.md).
