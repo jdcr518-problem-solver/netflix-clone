@@ -39,7 +39,7 @@ test('CLI operations persist across processes and protect malformed data', () =>
   const root = mkdtempSync(join(tmpdir(), 'streamframe-registry-'));
   try {
     for (const directory of ['scripts','lib','data']) mkdirSync(join(root,directory));
-    for (const file of ['scripts/sources.ts','lib/registry-schema.ts','lib/registry-file.ts','lib/package-rights.ts']) copyFileSync(file,join(root,file));
+    for (const file of ['scripts/sources.ts','lib/registry-schema.ts','lib/registry-file.ts','lib/registry-mutation.ts','lib/package-rights.ts']) copyFileSync(file,join(root,file));
     const path = join(root,'data','sources.local.json');
     const input = join(root,'input.json');
     const {createdAt,updatedAt,...raw} = make('main');

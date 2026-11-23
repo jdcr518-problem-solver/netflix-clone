@@ -7,6 +7,8 @@ import { tmdb } from '../tmdb-fetch.ts';
 import { checkOwnedMedia } from './owned-media.ts';
 import { checkMedia } from './media.ts';
 import { readImportState, synchronize } from './sync.ts';
+import { operatorRegistry } from '../registry-runtime.ts';
+import { PostgresRegistry } from '../database/registry.ts';
 
 const folder=()=>join(process.cwd(),'data');
 
@@ -19,10 +21,15 @@ async function config() {
   }
 }
 
-export function importStatus() { return readImportState(join(folder(),'import-state.local.json')); }
+export function importStatus() {
+  const store=operatorRegistry();
+  return store instanceof PostgresRegistry ? store.checkpoint('publisher-sync') : readImportState(join(folder(),'import-state.local.json'));
+}
 
 export async function runImport(mode:'due'|'now',signal?:AbortSignal) {
-  return synchronize(folder(),await config(),{
+  const store=operatorRegistry();
+  const configuration=await config();
+  const dependencies:Parameters<typeof synchronize>[2]={
     discover:(scope,page,size,signal)=>discoverImportPage(scope.provider,scope.collection,page,size,signal),
     get:getFilmCandidate,
     async matches(candidate,signal){
@@ -42,5 +49,8 @@ export async function runImport(mode:'due'|'now',signal?:AbortSignal) {
     },
     check:(edition,origin,deadline,rule)=>rule.distribution === 'owned-same-origin'
       ? checkOwnedMedia(folder(),edition,origin,deadline) : checkMedia(edition,origin,deadline),
-  },mode,signal);
+  };
+  return store instanceof PostgresRegistry
+    ? store.withImportSession('publisher-sync',session=>synchronize(folder(),configuration,dependencies,mode,signal,session))
+    : synchronize(folder(),configuration,dependencies,mode,signal);
 }

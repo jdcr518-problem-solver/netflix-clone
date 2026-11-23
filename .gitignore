@@ -58,3 +58,14 @@ service-account*.json
 *.7z
 *.tar
 *.tar.gz
+
+# Private database state, snapshots and connection configuration
+/data/database/
+/database-backups/
+/backups/
+*.dump
+*.backup
+*.sql.gz
+.pgpass
+.pg_service.conf
+pgpass.conf

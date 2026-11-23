@@ -1,11 +1,13 @@
-import { createHash, randomUUID } from 'node:crypto';
-import { open, readFile, rename, unlink } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { open, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { FilmCandidate } from '../providers/blender';
 import type { FilmMatch } from '../providers/matching';
 import type { RegistrySource } from '../registry-schema';
-import { mutateRegistry, readRegistryFile, RegistryConflict } from '../registry-file.ts';
+import { RegistryConflict } from '../registry-file.ts';
+import { jsonRegistry } from '../registry-store.ts';
+import type { ImportSession } from '../database/registry.ts';
 import { evaluatePolicy, identity, parseConfig } from './policy.ts';
 import type { Edition, ImportConfig, Policy } from './policy.ts';
 import type { CheckResult } from './media';
@@ -35,37 +37,8 @@ function formatError(value:unknown) {
   // Never serialize raw upstream messages, URLs, tokens or request headers.
   return value instanceof RegistryConflict ? 'Registry changed or is locked.' : 'The operation failed or timed out.';
 }
-const empty = ():ImportState => ({version:1,configHash:'',nextScope:0,cursors:{},candidates:[],history:[]});
-
-export async function readImportState(path:string):Promise<ImportState> {
-  try {
-    const state=JSON.parse((await readFile(path,'utf8')).replace(/^\uFEFF/,''));
-    if (state?.version!==1 || !Array.isArray(state.history) || !Array.isArray(state.candidates) ||
-      !state.cursors || !Number.isSafeInteger(state.nextScope) || state.nextScope<0) throw new Error('Malformed import checkpoint.');
-    const seen=new Set<string>();
-    state.candidates=state.candidates.flatMap((item:CandidateStatus)=>{
-      const parts=item.key.split(':');
-      const key=`${parts[0]}:${parts.at(-1)}`;
-      if(seen.has(key)) return [];
-      seen.add(key);
-      return [{...item,key}];
-    });
-    return state;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code==='ENOENT') return empty();
-    throw error;
-  }
-}
-
-async function save(path:string,state:ImportState) {
-  const tmp = `${path}.${randomUUID()}.tmp`;
-  const handle = await open(tmp,'wx',0o600);
-  try {
-    try { await handle.writeFile(JSON.stringify(state,null,2)+'\n','utf8'); await handle.sync(); }
-    finally { await handle.close(); }
-    await rename(tmp,path);
-  } finally { await unlink(tmp).catch(()=>{}); }
-}
+export { readImportState } from './state.ts';
+import { readImportState, saveImportState as save } from './state.ts';
 
 export function uniqueMatch(candidate:FilmCandidate,edition:Edition,matches:FilmMatch[]) {
   const exact = matches.filter(movie=>movie.release_date?.slice(0,4)===String(edition.year)
@@ -101,20 +74,20 @@ function approvedSource(candidate:FilmCandidate,rule:Policy,edition:Edition,chec
           ...(edition.ownedMasterUrl ? {publisherMasterUrl:edition.ownedMasterUrl,mediaSha256:edition.mediaSha256} : {})}}}};
 }
 
-export async function synchronize(directory:string,configuration:unknown,dependencies:Dependencies,mode:'due'|'now'='due',stop?:AbortSignal) {
-  if (process.env.NODE_ENV==='production') throw new Error('Local synchronization is disabled in production.');
+export async function synchronize(directory:string,configuration:unknown,dependencies:Dependencies,mode:'due'|'now'='due',stop?:AbortSignal,session?:ImportSession) {
+  if (process.env.NODE_ENV==='production' && !session) throw new Error('Local synchronization is disabled in production.');
   const config=parseConfig(configuration);
   const statePath=join(directory,'import-state.local.json');
-  const registryPath=join(directory,'sources.local.json');
+  const store=session?.store ?? jsonRegistry(join(directory,'sources.local.json'));
+  const persist=(state:ImportState)=>session ? session.save(state) : save(statePath,state);
   const lockPath=statePath+'.lock';
-  const lock=await open(lockPath,'wx',0o600).catch(error=>{
+  const lock=session ? undefined : await open(lockPath,'wx',0o600).catch(error=>{
     if (error.code==='EEXIST') throw new RegistryConflict('Another synchronization is running, or its lock needs recovery.');
     throw error;
   });
   try {
-    await lock.writeFile(String(process.pid),'utf8');
-    await lock.sync();
-    const state=await readImportState(statePath);
+    if (lock) {await lock.writeFile(String(process.pid),'utf8'); await lock.sync();}
+    const state=session ? await session.read() : await readImportState(statePath);
     const previous=state.history[0];
     if (mode==='due' && previous && previous.status!=='running' &&
       Date.now()-Date.parse(previous.startedAt)<config.minimumIntervalMinutes*60000) return {state,skipped:true};
@@ -129,7 +102,7 @@ export async function synchronize(directory:string,configuration:unknown,depende
     }
     const run:Run={startedAt:time(),status:'running',discovered:0,newTitles:0,published:0,pending:0,rejected:0,playbackFailed:0,errors:0,messages:[]};
     state.history=[run,...state.history].slice(0,20);
-    await save(statePath,state);
+    await persist(state);
     const deadline=AbortSignal.timeout(40000);
     const signal=stop ? AbortSignal.any([deadline,stop]):deadline;
     const record=(status:CandidateStatus)=> {
@@ -169,7 +142,7 @@ export async function synchronize(directory:string,configuration:unknown,depende
                   if(decision.status==='pending') run.pending++; else run.rejected++;
                   result(decision.status,decision.reason);
                 } else {
-                  const registered=await readRegistryFile(registryPath);
+                  const registered=await store.read();
                   if (decision.editions.some(({edition})=>registered.some(entry=>entry.url===edition.url))) {
                     result('already-registered','This edition already exists. Sync leaves its enablement and progress ID intact.');
                   } else {
@@ -184,8 +157,20 @@ export async function synchronize(directory:string,configuration:unknown,depende
                         catch { signal.throwIfAborted(); continue; }
                         signal.throwIfAborted();
                         if(Date.parse(rule.validUntil!)<=Date.now()) break;
-                        await mutateRegistry(registryPath,'approve','',approvedSource(details,rule,edition,checked));
-                        published=true; run.published++; result('published',`Published under policy ${rule.id}. ${checked.summary}`); break;
+                        const patch=approvedSource(details,rule,edition,checked);
+                        if (session) {
+                          // Commit the source and its exact next cursor in one transaction.
+                          const snapshot=structuredClone(state);
+                          run.published++; result('published',`Published under policy ${rule.id}. ${checked.summary}`);
+                          state.cursors[scopeKey]={page:cursor.page,offset:index+1};
+                          try {await session.publish(patch,state);} catch(error) {
+                            Object.assign(state,snapshot); Object.assign(run,snapshot.history[0]); state.history[0]=run; throw error;
+                          }
+                        } else {
+                          await store.mutate('approve','',patch);
+                          run.published++; result('published',`Published under policy ${rule.id}. ${checked.summary}`);
+                        }
+                        published=true; break;
                       }
                       if (!published) {run.playbackFailed++;result('playback-failed','Compatible media could not be verified within the probe budget.');}
                     }
@@ -198,10 +183,10 @@ export async function synchronize(directory:string,configuration:unknown,depende
             }
           }
           state.cursors[scopeKey]={page:cursor.page,offset:index+1};
-          await save(statePath,state);
+          await persist(state);
         }
         state.cursors[scopeKey]={page:page.hasMore ? cursor.page+1 : 1,offset:0};
-        await save(statePath,state);
+        await persist(state);
       } catch(error) {
         run.errors++; run.messages.push(`${scopeKey}: ${formatError(error)}`);
       }
@@ -209,9 +194,9 @@ export async function synchronize(directory:string,configuration:unknown,depende
     state.nextScope=(start+1)%config.discovery.length;
     run.endedAt=time();
     run.status=signal.aborted || run.errors ? 'partial':'complete';
-    await save(statePath,state);
+    await persist(state);
     return {state,skipped:false};
   } finally {
-    try {await lock.close();} finally {await unlink(lockPath);}
+    if (lock) {try {await lock.close();} finally {await unlink(lockPath);}}
   }
 }

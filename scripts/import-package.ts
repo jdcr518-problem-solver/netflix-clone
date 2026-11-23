@@ -3,10 +3,11 @@ import { join } from 'node:path';
 import { loadEnvFile } from 'node:process';
 import { tmdb } from '../lib/tmdb-fetch.ts';
 import { importSupplierPackage, type SupplierCatalog } from '../lib/importer/supplier-package.ts';
+import { operatorRegistry } from '../lib/registry-runtime.ts';
+import { closeDatabasePools } from '../lib/database/connection.ts';
 import { externalAndStagedStorage } from '../lib/importer/supplier-media.ts';
 
 async function main() {
-  if (process.env.NODE_ENV==='production') throw new Error('Supplier package imports are disabled in production.');
   const [path,option,extra]=process.argv.slice(2);
   if (!path || extra || (option && option!=='--publish')) throw new Error('Usage: npm run sources:package -- <manifest.json> [--publish]');
   try { loadEnvFile('.env.local'); } catch(error) { if ((error as NodeJS.ErrnoException).code!=='ENOENT') throw error; }
@@ -37,7 +38,7 @@ async function main() {
     if (!info.isFile() || info.size>4_000_000) throw new Error('Package must be a regular JSON file up to 4 MB.');
     return JSON.parse((await readFile(path,{encoding:'utf8',signal})).replace(/^\uFEFF/,''));
   }};
-  const result=await importSupplierPackage(join(data,'sources.local.json'),feed,{catalog,origins,storage:externalAndStagedStorage(data)},
+  const result=await importSupplierPackage(operatorRegistry(),feed,{catalog,origins,storage:externalAndStagedStorage(data)},
     option==='--publish',AbortSignal.timeout(30*60*1000));
   console.log(JSON.stringify(result,null,2));
 }
@@ -45,4 +46,4 @@ async function main() {
 main().catch(error=>{
   console.error(error instanceof SyntaxError ? 'Invalid package JSON.' : error.code ? `Package operation failed (${error.code}).` : error.message);
   process.exitCode=1;
-});
+}).finally(closeDatabasePools);

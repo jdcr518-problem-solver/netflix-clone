@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { validateRegistry, type RegistrySource, type SupplierRelease } from '../registry-schema.ts';
 import type { PackageRights } from '../package-rights.ts';
-import { mutateRegistry } from '../registry-file.ts';
+import { asRegistryStore, type RegistryStore } from '../registry-store.ts';
 import { validateWebVtt, type MediaStorage, type StagedAsset } from './supplier-media.ts';
 
 type Fields = Record<string,unknown>;
@@ -169,10 +169,10 @@ export async function prepareSupplierPackage(value:unknown,{catalog,storage,orig
   return sources;
 }
 
-export async function importSupplierPackage(path:string,feed:SupplierFeed,dependencies:PackageDependencies,publish:boolean,signal:AbortSignal) {
+export async function importSupplierPackage(path:string|RegistryStore,feed:SupplierFeed,dependencies:PackageDependencies,publish:boolean,signal:AbortSignal) {
   const sources=await prepareSupplierPackage(await feed.readPackage(signal),dependencies,signal);
   signal.throwIfAborted();
-  if (publish) await mutateRegistry(path,'approve-package','',sources);
+  if (publish) await asRegistryStore(path).mutate('approve-package','',sources);
   return {sources:sources.length,movies:new Set(sources.flatMap(({target})=>target.namespace==='tmdb' && target.type==='movie' ? [target.tmdbId] : [])).size,
     episodes:new Set(sources.flatMap(({target})=>target.namespace==='tmdb' && target.type==='episode' ? [`${target.tmdbId}:${target.season}:${target.episode}`] : [])).size,
     series:new Set(sources.flatMap(({target})=>target.namespace==='tmdb' && target.type==='episode' ? [target.tmdbId] : [])).size,publishedToRegistry:publish};

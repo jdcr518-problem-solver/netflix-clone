@@ -16,6 +16,7 @@ async function input(path: string) {
 }
 
 async function main() {
+  if (process.env.STREAMFRAME_REGISTRY_MODE === 'postgres') throw new Error('Use npm run sources:database for operator database commands. This CLI manages local JSON only.');
   if ((command === 'list' || command === 'validate') && !argument) {
     const sources = await readRegistryFile(registryPath);
     if (command === 'validate') console.log(`Valid registry (${sources.length} sources).`);

@@ -12,18 +12,25 @@
     "sources:sync": "node --conditions=react-server --experimental-strip-types scripts/sync-sources.ts",
     "sources:package": "node --conditions=react-server --experimental-strip-types scripts/import-package.ts",
     "test:importer": "node --conditions=react-server --experimental-strip-types --test scripts/importer.test.ts",
-    "test:packages": "node --conditions=react-server --experimental-strip-types --test scripts/supplier-package.test.ts"
+    "test:packages": "node --conditions=react-server --experimental-strip-types --test scripts/supplier-package.test.ts",
+    "sources:database": "node --conditions=react-server --experimental-strip-types scripts/database.ts",
+    "test:database": "node --conditions=react-server --experimental-strip-types --test scripts/database.test.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run test:sources && npm run test:importer && npm run test:packages && npm run test:database"
   },
   "dependencies": {
     "hls.js": "^1.7.4",
     "lucide-react": "^0.468.0",
     "next": "^15.3.0",
+    "pg": "8.23.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "server-only": "^0.0.1"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.17",
     "@types/node": "^22.0.0",
+    "@types/pg": "8.23.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "typescript": "^5.7.0"

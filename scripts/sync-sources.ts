@@ -1,3 +1,4 @@
+import { closeDatabasePools } from '../lib/database/connection.ts';
 import { loadEnvFile } from 'node:process';
 import { runImport } from '../lib/importer/runtime.ts';
 
@@ -17,6 +18,7 @@ try {
   console.error(error instanceof SyntaxError ? 'Invalid JSON in the local import policy or checkpoint.' : error instanceof Error ? error.message : 'Synchronization failed.');
   process.exitCode=1;
 } finally {
+  await closeDatabasePools();
   process.off('SIGINT',cancel);
   process.off('SIGTERM',cancel);
 }
