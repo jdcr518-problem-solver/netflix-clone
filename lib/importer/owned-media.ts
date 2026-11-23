@@ -11,7 +11,7 @@ async function readBytes(file:FileHandle,position:number,length:number) {
   return buffer;
 }
 
-async function movieMetadata(file:FileHandle,total:number,signal:AbortSignal) {
+export async function movieMetadata(file:FileHandle,total:number,signal:AbortSignal) {
   let position=0;
   // Read box headers and skip the sample data. Publisher masters can have large sample tables.
   for (let count=0;count<128 && position+8<=total;count++) {

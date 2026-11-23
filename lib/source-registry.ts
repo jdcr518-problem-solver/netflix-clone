@@ -1,4 +1,5 @@
 import 'server-only';
+import { deliver } from './media-delivery.ts';
 import { readerRegistry } from './registry-runtime.ts';
 import { episodeSources, isReleaseEpisode, isReleaseMovieInCountry, movieSources, type RegistrySource } from './registry-schema.ts';
 import type { MediaItem } from '../types/movie';
@@ -18,7 +19,7 @@ export async function readRegistry(target?: {type:'movie'|'tv';id:number}) {
 
 export async function availableMovieIds(country?:string) {
   const entries = await readRegistry();
-  return [...new Set(entries.filter(entry=>isReleaseMovieInCountry(entry,country)).flatMap(({target}) =>
+  return [...new Set(entries.filter(entry=>isReleaseMovieInCountry(entry,country) && deliver(entry,country)).flatMap(({target}) =>
     target.type === 'movie' && target.namespace === 'tmdb' ? [target.tmdbId] : []))];
 }
 
@@ -32,6 +33,7 @@ export async function playbackOptions(type: 'movie' | 'tv', id: number, country?
 }
 
 export function resolvePlayback(entries:RegistrySource[],type:'movie'|'tv',id:number,country?:string):PlaybackOptions {
+  entries=entries.flatMap(entry=>{const playable=deliver(entry,country);return playable?[playable]:[];});
   if (type === 'movie') {
     const released = entries.filter(entry=>entry.target.namespace==='tmdb' && entry.target.tmdbId===id && isReleaseMovieInCountry(entry,country));
     const sources = movieSources(released, id);
