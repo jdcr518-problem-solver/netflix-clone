@@ -37,6 +37,7 @@ export async function stageEdition(store:PrivateStorage,directory:string,entry:s
     const key=plan.group+'/'+asset.name;
     if(!await store.matches(key,asset)) await store.put(key,join(directory,asset.name),asset);
   }
+  console.info(JSON.stringify({event:'media_package_staged',objects:plan.assets.length,bytes:plan.assets.reduce((sum,asset)=>sum+asset.bytes,0)}));
   return plan;
 }
 // Gateway-only origin access. Pass Range unchanged; S3 enforces 206/416.

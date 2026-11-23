@@ -1,4 +1,6 @@
-import {authorizedObject,type DeliveryConfig} from '../media-delivery.ts';
+import {recordMedia} from '../operational-metrics.ts';
+import type {RegistrySource} from '../registry-schema.ts';
+import {currentEdition,authorizedObject,type DeliveryConfig} from '../media-delivery.ts';
 
 export interface OriginObject {
   body:ReadableStream<Uint8Array>|null;
@@ -12,9 +14,9 @@ export interface MediaOrigin {
 // Mount on a separate CDN gateway. All response paths are private and uncached.
 // An edge may cache immutable origin bytes AFTER checking the grant and denylist.
 export async function serveMedia(request:Request,config:DeliveryConfig,origin:MediaOrigin,
-  site:string,edgeCountry:string|undefined,isRevoked:(sourceId:string)=>Promise<boolean>) {
+  site:string,edgeCountry:string|undefined,lookupCurrent:(sourceId:string,kind:'movie'|'series',tmdbId:number)=>Promise<RegistrySource|undefined>) {
   const headers=new Headers({'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer','Vary':'Origin'});
-  const error=(status:number)=>new Response(null,{status,headers});
+  const error=(status:number)=>{recordMedia(status);return new Response(null,{status,headers});};
   const caller=request.headers.get('Origin');
   if(caller && caller!==site) return error(403);
   headers.set('Access-Control-Allow-Origin',site);
@@ -27,7 +29,7 @@ export async function serveMedia(request:Request,config:DeliveryConfig,origin:Me
   const grant=authorizedObject(new URL(request.url),edgeCountry,config);
   if(!grant)return error(403);
   try {
-    if(await isRevoked(grant.sourceId)) return error(403);
+    if(!currentEdition(await lookupCurrent(grant.sourceId,grant.kind,grant.tmdbId),grant,edgeCountry) || Date.now()>=grant.expiresAt) return error(403);
     const range=request.headers.get('Range')??undefined;
     if(range && !/^bytes=(?:\d+-\d*|-\d+)$/.test(range)) return error(416);
     const head=request.method==='HEAD';
@@ -36,6 +38,7 @@ export async function serveMedia(request:Request,config:DeliveryConfig,origin:Me
     headers.set('Content-Type',object.type);headers.set('Content-Length',String(object.length));
     headers.set('Accept-Ranges','bytes');
     if(object.contentRange) headers.set('Content-Range',object.contentRange);
+    recordMedia(object.contentRange?206:200,head?0:object.length);
     return new Response(head?null:object.body,{status:object.contentRange?206:200,headers});
   } catch(errorValue) {
     const status=(errorValue as {$metadata?:{httpStatusCode?:number}})?.$metadata?.httpStatusCode;

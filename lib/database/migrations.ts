@@ -1,9 +1,11 @@
 import 'server-only';
+import {productionOperation} from '../operations.ts';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { transaction, type SqlPool } from './connection.ts';
 
 export async function migrateDatabase(pool:SqlPool,apply=false) {
+  await productionOperation('schema');
   const migrations=await Promise.all(['001_registry.sql','002_media_urls.sql'].map(async name=>{
     const sql=(await readFile(new URL(`../../db/migrations/${name}`,import.meta.url),'utf8')).replace(/\r\n/g,'\n');
     return {name,sql,checksum:createHash('sha256').update(sql).digest('hex')};

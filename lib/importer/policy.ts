@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 import type { SubtitleSource } from '../../types/playback';
 import type { FilmCandidate } from '../providers/blender';
 import { safeEvidenceUrl } from '../registry-schema.ts';
@@ -25,6 +26,7 @@ export interface Policy {
 
 export interface Edition {
   candidateId:string;
+  rightsSnapshot?:string;
   url:string;
   format:'mp4'|'hls';
   tmdbId:number;
@@ -110,6 +112,7 @@ export function parseConfig(value:unknown):ImportConfig {
       || !rule.editions.length || rule.editions.length > 500) throw new Error(`Policy ${rule.id} lacks required authorization evidence.`);
     for (const edition of rule.editions) {
       if (!edition || typeof edition.candidateId !== 'string' || !key.test(edition.candidateId)
+        || (edition.rightsSnapshot!==undefined && !/^[a-f0-9]{64}$/.test(edition.rightsSnapshot))
         || typeof edition.url !== 'string' || urls.has(edition.url)
         || (rule.distribution === 'owned-same-origin'
           ? rule.provider !== 'blender' || !safeEvidenceUrl(edition.ownedMasterUrl) || !ownedEditionName(edition,rule.playbackOrigin!)
@@ -137,13 +140,26 @@ export function parseConfig(value:unknown):ImportConfig {
 }
 
 const normalize = (text:string) => text.normalize('NFKD').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
+export function rightsSnapshot(candidate:FilmCandidate) {
+  const evidence=[candidate.provider,candidate.id,candidate.owner,candidate.originalPage,candidate.licenseClaim,
+    candidate.licenseUrl,candidate.evidence,candidate.attribution,candidate.creditsRequirement];
+  return createHash('sha256').update(JSON.stringify(evidence)).digest('hex');
+}
+export function reviewedProductionPolicy(bytes:Buffer,expected:string|undefined) {
+  if(createHash('sha256').update(bytes).digest('hex')!==expected) throw new Error('Reviewed import policy digest required.');
+  const config=parseConfig(JSON.parse(bytes.toString('utf8').replace(/^\uFEFF/,'')));
+  if(config.policies.some(rule=>rule.action==='preauthorize' && rule.editions?.some(e=>!e.rightsSnapshot)))
+    throw new Error('Production editions require pinned publisher rights metadata.');
+  return config;
+}
+
 export function evaluatePolicy(config:ImportConfig,candidate:FilmCandidate) {
   const rules = config.policies.filter(rule => rule.provider === candidate.provider && candidate.collections?.includes(rule.collection)
     && (rule.publisher === '*' ? rule.action !== 'preauthorize' : normalize(rule.publisher) === normalize(candidate.owner)));
   if (rules.some(rule=>rule.action==='deny')) return {status:'rejected' as const,reason:'A policy denies this publisher or collection.'};
   if (rules.some(rule=>rule.action==='review')) return {status:'pending' as const,reason:'Policy requires manual evidence review.'};
   const eligible = rules.flatMap(rule => rule.action !== 'preauthorize' || Date.parse(rule.validUntil ?? '') <= Date.now() ? [] : (rule.editions ?? []).flatMap(edition => (
-    edition.candidateId === candidate.id && edition.year === candidate.year && normalize(edition.title) === normalize(candidate.title)
+    (!edition.rightsSnapshot || edition.rightsSnapshot===rightsSnapshot(candidate)) && edition.candidateId === candidate.id && edition.year === candidate.year && normalize(edition.title) === normalize(candidate.title)
     && (!candidate.director || normalize(candidate.director) === normalize(edition.director))
     && (rule.distribution === 'owned-same-origin'
       ? candidate.publisherEditions?.some(master => master.url === edition.ownedMasterUrl)

@@ -12,7 +12,7 @@ export async function readRegistry(target?: {type:'movie'|'tv';id:number}) {
     return await readerRegistry().read(target);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
-      console.error('Video registry could not be read or validated. Catalog playback is unavailable.');
+      console.error(JSON.stringify({event:'playback_registry_unavailable'}));
     return [];
   }
 }

@@ -1,10 +1,12 @@
+import {generateKeyPair,exportSPKI,SignJWT} from 'jose';
+import {withScheduledLock} from '../lib/importer/scheduled.ts';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { PGlite } from '@electric-sql/pglite';
 import pg from 'pg';
-import { connectionOptions, transaction, type SqlPool } from '../lib/database/connection.ts';
+import { checkDatabaseRole, connectionOptions, transaction, type SqlPool } from '../lib/database/connection.ts';
 import { migrateDatabase } from '../lib/database/migrations.ts';
 import { PostgresRegistry } from '../lib/database/registry.ts';
 import { registryMode } from '../lib/registry-store.ts';
@@ -144,6 +146,7 @@ test('playback projection enforces license dates, territories, enablement and pr
   const publicJSON=JSON.stringify(options);
   for(const privateText of ['INTERNAL-EVIDENCE','private-host-evidence','private-review','supplierRelease','rightsReference','packageId']) assert.equal(publicJSON.includes(privateText),false);
   assert.equal(options.sources[0].credit?.text,rights.attribution);
+  await assert.rejects(store.revoke('valid','password=synthetic-sample'),/credential/);
   await store.revoke('valid','Expired permission');
   assert.equal(resolvePlayback(await reader.read(),'movie',42,'PK').availability,'unavailable');
 }));
@@ -153,12 +156,17 @@ test('read role cannot modify sources or inspect checkpoints and audit is append
   await query(pool,await readFile(new URL('../db/roles.sql',import.meta.url),'utf8'));
   const client=await pool.connect();
   try {
+    await assert.rejects(checkDatabaseRole(client,'reader'));
     await client.query('SET ROLE streamframe_reader');
+    await checkDatabaseRole(client,'reader');
+    await assert.rejects(checkDatabaseRole(client,'operator'));
     assert.equal((await client.query('SELECT record FROM streamframe.playback_records')).rows.length,1);
     await assert.rejects(client.query('SELECT * FROM streamframe.sources'),/permission denied/);
     await assert.rejects(client.query('SELECT * FROM streamframe.import_checkpoints'),/permission denied/);
     await assert.rejects(client.query('UPDATE streamframe.sources SET revoked_at=now()'),/permission denied/);
     await client.query('RESET ROLE');await client.query('SET ROLE streamframe_operator');
+    await checkDatabaseRole(client,'operator');
+    await assert.rejects(checkDatabaseRole(client,'reader'));
     await assert.rejects(client.query("UPDATE streamframe.audit_events SET actor='forged'"),/permission denied/);
     await assert.rejects(client.query('DELETE FROM streamframe.sources'),/permission denied/);
   } finally {await client.query('RESET ROLE');client.release();}
@@ -237,6 +245,10 @@ test('native PostgreSQL driver and concurrent transaction integration (optional 
   try {
     const existing=await pool.query("SELECT to_regclass('streamframe.sources') AS relation");
     assert.equal(existing.rows[0].relation,null,'Use a fresh disposable database; tests never clear existing data.');
+    await withScheduledLock(pool,async()=>{
+      assert.equal(await withScheduledLock(pool,async()=>assert.fail('overlap')),false);
+    });
+    assert.equal(await withScheduledLock(pool,async()=>{}),true);
     await installLegacy(pool);
     await migrateDatabase(pool,true);
     const store=new PostgresRegistry(pool,'operator','native-test');
@@ -303,4 +315,28 @@ test('invalid legacy rows roll back constraint upgrade and migration ledger atom
     assert.deepEqual((await migrateDatabase(pool)).pending,['002_media_urls.sql']);
     assert.equal((await query(pool,'SELECT count(*)::int AS n FROM streamframe.sources')).rows[0].n,1);
   } finally {await pool.end();}
+});
+
+test('signed worker permissions bind database changes to the authenticated audit actor',async()=>{
+  await fixture(async(store,pool)=>{
+    await store.mutate('approve-package','',[source('incident')]);
+    const keys=await generateKeyPair('RS256');
+    const issuer='https://identity.example.invalid';
+    const token=await new SignJWT({amr:['mfa'],auth_time:Math.floor(Date.now()/1000)})
+      .setProtectedHeader({alg:'RS256',typ:'at+jwt'}).setIssuer(issuer).setAudience('ops').setSubject('oncall')
+      .setIssuedAt().setExpirationTime('5m').sign(keys.privateKey);
+    const vars:Record<string,string|undefined>=process.env;
+    const config={NODE_ENV:'production',STREAMFRAME_REGISTRY_MODE:'postgres',STREAMFRAME_DATABASE_WRITE_URL:'postgresql://worker@database.invalid/catalog',
+      STREAMFRAME_PRINCIPAL_KIND:'operator',STREAMFRAME_ACCESS_TOKEN:token,STREAMFRAME_SSO_ISSUER:issuer,STREAMFRAME_SSO_AUDIENCE:'ops',
+      STREAMFRAME_SSO_PUBLIC_KEY:await exportSPKI(keys.publicKey),STREAMFRAME_SSO_ROLES:JSON.stringify({oncall:'responder'})};
+    const previous=Object.keys(config).map(key=>[key,vars[key]] as const);
+    Object.assign(vars,config);
+    try {
+      await store.mutate('disable','incident');
+      await assert.rejects(store.mutate('enable','incident'),/denied/);
+      const rows=await query(pool,"SELECT actor,action FROM streamframe.audit_events WHERE source_id='incident' AND action='disable'");
+      assert.deepEqual(rows.rows,[{actor:'operator:oncall',action:'disable'}]);
+      assert.equal((await store.read())[0].enabled,false);
+    } finally {for(const [key,value] of previous) {if(value===undefined) delete vars[key];else vars[key]=value;}}
+  });
 });
