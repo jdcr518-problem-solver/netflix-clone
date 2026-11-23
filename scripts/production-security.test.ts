@@ -1,3 +1,5 @@
+import {createHash} from 'node:crypto';
+import {catalogToken} from '../lib/tmdb-credential.ts';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {generateKeyPair,exportSPKI,SignJWT} from 'jose';
@@ -26,6 +28,7 @@ test('operator MFA and server-assigned role gate every requested capability',asy
   for(const claims of [{amr:['pwd']},{auth_time:now-1000},{sub:'eve'},{iss:'https://elsewhere.invalid'},
     {aud:'scheduler'},{exp:now-1},{exp:now+3600},{iat:now+30},{nbf:now+30}])
     await assert.rejects(verifyOperation('disable',{...env,STREAMFRAME_ACCESS_TOKEN:await issue(claims)}));
+  await assert.rejects(verifyOperation('sync',{...configured,STREAMFRAME_SSO_ROLES:JSON.stringify({alice:['scheduler']})}));
   const other=await generateKeyPair('RS256');
   await assert.rejects(verifyOperation('disable',{...env,STREAMFRAME_ACCESS_TOKEN:await issue({},other.privateKey)}));
 });
@@ -53,13 +56,15 @@ test('production registry refuses unauthorized calls before opening an operator 
 });
 test('production web requires independent keys and read-only credential configuration',()=>{
   const cfg={NODE_ENV:'production' as const,STREAMFRAME_REGISTRY_MODE:'postgres',STREAMFRAME_DATABASE_READ_URL:'postgresql://reader@db.invalid/catalog',
-    TMDB_READ_ACCESS_TOKEN:'fixture',STREAMFRAME_DELIVERY_ORIGIN:'https://media.example.invalid',
+    TMDB_READ_ACCESS_TOKEN:'fixture',STREAMFRAME_TMDB_APPROVED_SHA256:createHash('sha256').update('fixture').digest('hex'),STREAMFRAME_DELIVERY_ORIGIN:'https://media.example.invalid',
     STREAMFRAME_DELIVERY_KEY:'a'.repeat(36),STREAMFRAME_GEO_PROXY_SECRET:'b'.repeat(36)};
   productionConfig('web',cfg);
-  for(const change of [{STREAMFRAME_GEO_PROXY_SECRET:''},{STREAMFRAME_DELIVERY_KEY:cfg.STREAMFRAME_GEO_PROXY_SECRET},
+  for(const change of [{STREAMFRAME_TMDB_APPROVED_SHA256:undefined},{TMDB_READ_ACCESS_TOKEN:'different'},{STREAMFRAME_GEO_PROXY_SECRET:''},{STREAMFRAME_DELIVERY_KEY:cfg.STREAMFRAME_GEO_PROXY_SECRET},
     {STREAMFRAME_DATABASE_WRITE_URL:'unexpected'},{STREAMFRAME_DELIVERY_ORIGIN:'http://media.invalid'},{TMDB_READ_ACCESS_TOKEN:''}])
     assert.throws(()=>productionConfig('web',{...cfg,...change}));
   assert.throws(()=>productionConfig('gateway',cfg));
+  assert.throws(()=>catalogToken({...cfg,STREAMFRAME_TMDB_APPROVED_SHA256:undefined}));
+  assert.equal(catalogToken(cfg),'fixture');
 });
 test('country proof, job overlap, expiry windows and media counters fail safely',async()=>{
   const secret='g'.repeat(32);

@@ -45,3 +45,11 @@ Alert on `database_connection_failed`, `playback_registry_unavailable`, `schedul
 4. Retain the private audit sequence and aggregate incident timestamps. Review policy pins and source state with the rights owner before authorizing a replacement edition.
 
 Before release, exercise a real IdP login and MFA, workload-token issuance, key rotation, denied direct-origin access, trusted country injection, cache behavior, revocation latency, full-length playback, monitoring delivery and long-session load against the selected providers. Local tests cover application behavior. Infrastructure verification needs a separately approved environment.
+
+## TMDB application token rotation
+
+The registered TMDB account owner must authorize rotation. In the account API settings, replace the exposed application read token and revoke the prior credential. If the account offers no replacement or revocation control, contact TMDB support privately. Record the credential version, owner, change time and provider confirmation. Keep token values out of tickets, command arguments, repository files, browser code and logs. [Application authentication](https://developer.themoviedb.org/docs/authentication-application)
+
+Store the newly issued token as the server-only `TMDB_READ_ACCESS_TOKEN` for the catalog runtime and authorized import workers. Independently approve its lowercase hexadecimal SHA-256 fingerprint in protected release configuration as `STREAMFRAME_TMDB_APPROVED_SHA256`. Compute the fingerprint from the secret value in memory in the trusted configuration process. Review changes to the pin independently of changes to the secret. Development can retain its separate local configuration.
+
+In production, the client checks the fingerprint before contacting TMDB. A missing or mismatched pin, or the fingerprint of the previously disclosed token, disables catalog authentication. The pin authenticates the selected secret version locally. Before release the owner must also verify that a private metadata request with the replacement succeeds and that TMDB has invalidated the previous credential. Keep only the HTTP status and credential version as evidence. Remove retired values from deployment and CI settings. A release rollback must retain the replacement credential and its pin.

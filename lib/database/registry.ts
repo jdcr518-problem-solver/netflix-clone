@@ -135,6 +135,7 @@ export class PostgresRegistry implements RegistryStore {
   }
   async revoke(id:string,reason:string) {
     await this.operator('disable');
+    rejectEmbeddedSecrets(reason);
     if (!reason.trim() || reason.length>500) throw new Error('A revocation reason is required (up to 500 characters).');
     await transaction(this.pool,async client=>{
       await this.lock(client);

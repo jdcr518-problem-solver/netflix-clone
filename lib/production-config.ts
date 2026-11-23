@@ -1,4 +1,5 @@
 import 'server-only';
+import {catalogToken} from './tmdb-credential.ts';
 import {connectionOptions} from './database/connection.ts';
 
 export type RuntimeRole='web'|'gateway'|'scheduler'|'operator'|'migrator';
@@ -21,7 +22,7 @@ export function productionConfig(role:RuntimeRole,env:Env=process.env) {
     httpsOrigin(env.STREAMFRAME_DELIVERY_ORIGIN);
     const secrets=[env.STREAMFRAME_DELIVERY_KEY,env.STREAMFRAME_GEO_PROXY_SECRET];
     if(secrets.some(v=>!v || Buffer.byteLength(v)<32) || secrets[0]===secrets[1]) throw new Error('Independent delivery and geo keys required.');
-    if(role==='web') {required('TMDB_READ_ACCESS_TOKEN');reject([storageKey,'AWS_SECRET_ACCESS_KEY']);}
+    if(role==='web') {catalogToken(env);reject([storageKey,'AWS_SECRET_ACCESS_KEY']);}
     else {
       httpsOrigin(env.STREAMFRAME_PLAYER_ORIGIN);
       httpsOrigin(env.STREAMFRAME_STORAGE_ENDPOINT);
@@ -35,7 +36,7 @@ export function productionConfig(role:RuntimeRole,env:Env=process.env) {
     const prefix=job?'STREAMFRAME_JOB_':'STREAMFRAME_SSO_';
     for(const name of ['ISSUER','AUDIENCE','PUBLIC_KEY',job?'SUBJECT':'ROLES']) required(prefix+name);
     if(job) {
-      required('TMDB_READ_ACCESS_TOKEN');
+      catalogToken(env);
       if(!/^[a-f0-9]{64}$/.test(env.STREAMFRAME_POLICY_SHA256??'')) throw new Error('Missing reviewed supplier policy digest.');
     }
   }

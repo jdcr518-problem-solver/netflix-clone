@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { PGlite } from '@electric-sql/pglite';
 import pg from 'pg';
-import { connectionOptions, transaction, type SqlPool } from '../lib/database/connection.ts';
+import { checkDatabaseRole, connectionOptions, transaction, type SqlPool } from '../lib/database/connection.ts';
 import { migrateDatabase } from '../lib/database/migrations.ts';
 import { PostgresRegistry } from '../lib/database/registry.ts';
 import { registryMode } from '../lib/registry-store.ts';
@@ -146,6 +146,7 @@ test('playback projection enforces license dates, territories, enablement and pr
   const publicJSON=JSON.stringify(options);
   for(const privateText of ['INTERNAL-EVIDENCE','private-host-evidence','private-review','supplierRelease','rightsReference','packageId']) assert.equal(publicJSON.includes(privateText),false);
   assert.equal(options.sources[0].credit?.text,rights.attribution);
+  await assert.rejects(store.revoke('valid','password=synthetic-sample'),/credential/);
   await store.revoke('valid','Expired permission');
   assert.equal(resolvePlayback(await reader.read(),'movie',42,'PK').availability,'unavailable');
 }));
@@ -155,12 +156,17 @@ test('read role cannot modify sources or inspect checkpoints and audit is append
   await query(pool,await readFile(new URL('../db/roles.sql',import.meta.url),'utf8'));
   const client=await pool.connect();
   try {
+    await assert.rejects(checkDatabaseRole(client,'reader'));
     await client.query('SET ROLE streamframe_reader');
+    await checkDatabaseRole(client,'reader');
+    await assert.rejects(checkDatabaseRole(client,'operator'));
     assert.equal((await client.query('SELECT record FROM streamframe.playback_records')).rows.length,1);
     await assert.rejects(client.query('SELECT * FROM streamframe.sources'),/permission denied/);
     await assert.rejects(client.query('SELECT * FROM streamframe.import_checkpoints'),/permission denied/);
     await assert.rejects(client.query('UPDATE streamframe.sources SET revoked_at=now()'),/permission denied/);
     await client.query('RESET ROLE');await client.query('SET ROLE streamframe_operator');
+    await checkDatabaseRole(client,'operator');
+    await assert.rejects(checkDatabaseRole(client,'reader'));
     await assert.rejects(client.query("UPDATE streamframe.audit_events SET actor='forged'"),/permission denied/);
     await assert.rejects(client.query('DELETE FROM streamframe.sources'),/permission denied/);
   } finally {await client.query('RESET ROLE');client.release();}

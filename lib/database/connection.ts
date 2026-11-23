@@ -30,11 +30,37 @@ export function connectionOptions(access:DatabaseAccess, env:Partial<NodeJS.Proc
     idle_in_transaction_session_timeout:15000,application_name:`streamframe-${access}`,allowExitOnIdle:true};
 }
 
+// Verify the actual login on each new physical production connection. Pool
+// credentials can be misbound even when their environment variable names are correct.
+export async function checkDatabaseRole(client:Pick<SqlClient,'query'>, access:'reader'|'operator') {
+  const expected='streamframe_'+access;
+  const {rows}=await client.query(`SELECT
+    pg_has_role(current_user,$1::name,'USAGE') AND
+    NOT EXISTS (SELECT FROM pg_roles r WHERE pg_has_role(current_user,r.oid,'MEMBER')
+      AND (r.rolsuper OR r.rolcreaterole OR r.rolcreatedb OR r.rolreplication OR r.rolbypassrls
+        OR r.rolname NOT IN (current_user,$1::name))) AND
+    NOT has_schema_privilege(current_user,'streamframe','CREATE') AND
+    has_table_privilege(current_user,'streamframe.playback_records','SELECT') AND
+    NOT has_table_privilege(current_user,'streamframe.audit_events','DELETE,TRUNCATE,TRIGGER') AND
+    NOT has_any_column_privilege(current_user,'streamframe.audit_events','UPDATE') AND
+    CASE WHEN $2::boolean THEN
+      NOT EXISTS (SELECT FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname='streamframe' AND c.relkind IN ('r','p','v','m','f') AND (
+          has_table_privilege(current_user,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR
+          has_any_column_privilege(current_user,c.oid,'INSERT,UPDATE,REFERENCES') OR
+          (c.relname<>'playback_records' AND has_any_column_privilege(current_user,c.oid,'SELECT'))))
+    ELSE has_table_privilege(current_user,'streamframe.sources','UPDATE') END AS allowed`,[expected,access==='reader']);
+  if(rows[0]?.allowed!==true) throw new Error('Database account privileges do not match the runtime role.');
+}
+
 const pools=new Map<DatabaseAccess,pg.Pool>();
 export function databasePool(access:DatabaseAccess):SqlPool {
   let pool=pools.get(access);
   if (!pool) {
-    pool=new pg.Pool(connectionOptions(access));
+    const options=connectionOptions(access);
+    if(process.env.NODE_ENV==='production' && access!=='migrator')
+      options.onConnect=client=>checkDatabaseRole(client,access);
+    pool=new pg.Pool(options);
     pool.on('error',()=>console.error(JSON.stringify({event:'database_connection_failed',access})));
     pools.set(access,pool);
   }

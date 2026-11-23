@@ -22,24 +22,28 @@ export async function verifyOperation(operation:Operation,env:Environment,now=ne
     const key=env[prefix+'PUBLIC_KEY'], token=env.STREAMFRAME_ACCESS_TOKEN;
     if(!issuer || new URL(issuer).protocol!=='https:' || !audience || !key || !token || token.length>16384) throw Error();
     if(env.STREAMFRAME_JOB_AUDIENCE && env.STREAMFRAME_JOB_AUDIENCE===env.STREAMFRAME_SSO_AUDIENCE) throw Error();
+    const authority=new URL(issuer);
+    if(authority.username || authority.password || authority.search || authority.hash) throw Error();
     const {payload}=await jwtVerify(token,await importSPKI(key.replace(/\\n/g,'\n'),'RS256'),{
       issuer,audience,algorithms:['RS256'],typ:'at+jwt',requiredClaims:['sub','exp','iat'],
       maxTokenAge:600,currentDate:now,
     });
     const seconds=Math.floor(now.getTime()/1000);
     if(typeof payload.sub!=='string' || !/^[a-zA-Z0-9_.:@-]{1,100}$/.test(payload.sub) ||
-        payload.exp!<=payload.iat! || payload.exp!-payload.iat!>600 || payload.aud!==audience) throw Error();
+        typeof payload.exp!=='number' || typeof payload.iat!=='number' ||
+        !Number.isSafeInteger(payload.exp) || !Number.isSafeInteger(payload.iat) ||
+        payload.exp<=payload.iat || payload.exp-payload.iat>600 || payload.aud!==audience) throw Error();
     let role:string;
     if(job) {
       if(payload.sub!==env.STREAMFRAME_JOB_SUBJECT) throw Error();
       role='scheduler';
     } else {
       if(!Array.isArray(payload.amr) || !payload.amr.includes('mfa') ||
-         !Number.isSafeInteger(payload.auth_time) || Number(payload.auth_time)>seconds || seconds-Number(payload.auth_time)>900) throw Error();
+         !Number.isSafeInteger(payload.auth_time) || Number(payload.auth_time)>payload.iat || seconds-Number(payload.auth_time)>900) throw Error();
       const assignments=JSON.parse(env.STREAMFRAME_SSO_ROLES??'{}');
       if(!Object.hasOwn(assignments,payload.sub)) throw Error();
       role=assignments[payload.sub];
-      if(role==='scheduler') throw Error();
+      if(typeof role!=='string' || role==='scheduler') throw Error();
     }
     if(!Object.hasOwn(privileges,role) || !privileges[role].includes(operation)) throw Error();
     return (job?'job:':'operator:')+payload.sub;
