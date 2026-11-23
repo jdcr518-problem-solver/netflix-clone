@@ -1,15 +1,14 @@
 import 'server-only';
-import { readRegistryFile } from './registry-file.ts';
-import { join } from 'node:path';
+import { readerRegistry } from './registry-runtime.ts';
 import { episodeSources, isReleaseEpisode, isReleaseMovieInCountry, movieSources, type RegistrySource } from './registry-schema.ts';
 import type { MediaItem } from '../types/movie';
 import type { PlaybackOptions } from '../types/playback';
 
-export const registryPath = join(process.cwd(), 'data', 'sources.local.json');
+export { registryPath } from './registry-runtime.ts';
 
-export async function readRegistry() {
+export async function readRegistry(target?: {type:'movie'|'tv';id:number}) {
   try {
-    return await readRegistryFile(registryPath);
+    return await readerRegistry().read(target);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
       console.error('Video registry could not be read or validated. Catalog playback is unavailable.');
@@ -29,7 +28,7 @@ export async function withPlaybackAvailability(items: MediaItem[]) {
 }
 
 export async function playbackOptions(type: 'movie' | 'tv', id: number, country?:string): Promise<PlaybackOptions> {
-  return resolvePlayback(await readRegistry(),type,id,country);
+  return resolvePlayback(await readRegistry({type,id}),type,id,country);
 }
 
 export function resolvePlayback(entries:RegistrySource[],type:'movie'|'tv',id:number,country?:string):PlaybackOptions {

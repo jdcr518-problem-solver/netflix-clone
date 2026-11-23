@@ -38,7 +38,7 @@ Ten homepage rows, title details, cast, trailers, recommendations, seasons, epis
 
 Catalog/details cache for one hour, genres for 24 hours, and search for five minutes. Next.js revalidates on requests after expiry, not with a background scheduler; an already-open page needs a reload to see updates. Development-only manual refresh: `Invoke-RestMethod -Method Post http://localhost:3000/api/revalidate`, then reload. Production rejects this endpoint.
 
-Register only licensed sources in `AUTHORIZED_CATALOG_SOURCES` in `lib/streaming.ts`, keyed by `movie:TMDB_ID` or `tv:TMDB_ID`. The registry is empty by default. TMDB supplies metadata and trailer links, not full-movie streaming rights.
+Register only licensed sources through the validated source registry and reviewed import workflows. The registry is empty by default. TMDB supplies metadata and trailer links, not full-movie streaming rights.
 
 TMDB attribution appears in the footer. Review TMDB licensing before commercial deployment. Missing images show a local fallback; unavailable API requests display a safe error without leaking credentials.
 
@@ -47,3 +47,9 @@ TypeScript and production build passed during development. Browser checks covere
 Movie/TV landscape cards load original TMDB PNG title logos near the viewport. English logos are preferred, then language-neutral and other-language artwork. Logo metadata is cached server-side for 24 hours and duplicate card requests are shared within a page session. Detail requests append image metadata. Missing or failed logos retain the regular accessible text title; portrait ranking cards retain their poster artwork. Screenshots: visual-review/logos/.
 See [Authorized video sources](data/README.md) for the local registry, management commands, and deployment notes.
 For scheduled local discovery and policy-based imports, see [Automated import synchronization](data/README.md#automated-import-synchronization).
+
+For the JSON/PostgreSQL adapter, production configuration, schema migrations,
+operator commands, safe content migration, rollback and hosting readiness, see
+[Phase 9A database guide](docs/phase9a-database.md). Run `npm test` for all suites.
+Production catalog playback requires an explicitly configured PostgreSQL reader;
+it never falls back to local JSON. The separate demo player remains unchanged.

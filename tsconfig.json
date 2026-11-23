@@ -33,6 +33,7 @@
   "exclude": [
     "node_modules",
     "publish-checkout",
-    ".next-player-interrupted"
+    ".next-player-interrupted",
+    "scratch"
   ]
 }
