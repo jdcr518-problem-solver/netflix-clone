@@ -1,351 +1,235 @@
 'use client';
 
-
-
-import { canPlay } from '../lib/streaming';
-
+import { useEffect, useRef, useState } from 'react';
+import { Check, Play, Plus, X } from 'lucide-react';
+import type { MediaItem } from '../types/movie';
+import type { SeasonDetails, TitleDetails } from '../types/details';
+import type { PlaybackOptions } from '../types/playback';
+import { loadPlayback, preferredSource } from '../lib/streaming';
+import { readProgress } from '../lib/playback-storage';
+import { progressKey } from '../lib/playback-controls';
+import { contentPath } from '../lib/content-path';
 import { Artwork } from './Artwork';
+import { CardTitle } from './CardTitle';
+import FilmAttribution from './FilmAttribution';
+import { VideoPlayer } from './VideoPlayer';
 
-import React, { useEffect, useState } from 'react';
-
-import { X, Play, Plus, Check, ThumbsUp } from 'lucide-react';
-
-import { MediaItem } from '../types/movie';
-
-
-
-
-
-interface DetailModalProps {
-
+interface Props {
   item: MediaItem;
-
+  details?: TitleDetails;
   inWatchlist: boolean;
-
   onClose: () => void;
-
-  onPlay: (item: MediaItem) => void;
-
   onToggleWatchlist: (item: MediaItem) => void;
-
   onSelectSimilar: (item: MediaItem) => void;
-
 }
 
+async function json<T>(query: string, signal: AbortSignal): Promise<T> {
+  const response = await fetch(`/api/tmdb?${query}`, { signal });
+  if (!response.ok) throw new Error('Request failed');
+  return response.json();
+}
 
+export function DetailModal({ item: initialItem, details, inWatchlist, onClose, onToggleWatchlist, onSelectSimilar }: Props) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const closeButton = useRef<HTMLButtonElement>(null);
+  const [data, setData] = useState(details);
+  const [error, setError] = useState(false);
+  const [season, setSeason] = useState(details?.seasons[0]?.number);
+  const [episodeData, setEpisodeData] = useState<{ season: number; data: SeasonDetails }>();
+  const [episodeError, setEpisodeError] = useState<number>();
+  const [options, setOptions] = useState<PlaybackOptions>();
+  const [playing, setPlaying] = useState<string>();
+  const [checking, setChecking] = useState(false);
+  const [lookupError, setLookupError] = useState(false);
+  const launchRequest = useRef<AbortController | null>(null);
+  const [progress, setProgress] = useState<ReturnType<typeof readProgress>>({});
+  const [logoFailed, setLogoFailed] = useState(false);
 
-export function DetailModal({
+  useEffect(() => {
+    const element = dialog.current!;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    element.showModal();
+    closeButton.current?.focus({ preventScroll: true });
+    document.body.style.overflow = 'hidden';
+    return () => {
+      element.close();
+      document.body.style.overflow = previousOverflow;
+      previousFocus?.focus({ preventScroll: true });
+    };
+  }, []);
 
-  item: initialItem,
+  useEffect(() => { if (!playing) setProgress(readProgress()); }, [playing]);
 
-  inWatchlist,
+  useEffect(() => {
+    if (details || !initialItem.tmdbId) return;
+    const controller = new AbortController();
+    const type = initialItem.type === 'series' ? 'tv' : 'movie';
+    json<TitleDetails>(`action=details&type=${type}&id=${initialItem.tmdbId}`, controller.signal)
+      .then(result => {
+        if (controller.signal.aborted) return;
+        setData(result);
+        setSeason(result.seasons[0]?.number);
+      })
+      .catch(() => { if (!controller.signal.aborted) setError(true); });
+    return () => controller.abort();
+  }, [details, initialItem.tmdbId, initialItem.type]);
 
-  onClose,
+  useEffect(() => {
+    if (season === undefined || !initialItem.tmdbId) return;
+    const controller = new AbortController();
+    json<SeasonDetails>(`action=season&id=${initialItem.tmdbId}&season=${season}`, controller.signal)
+      .then(result => {
+        if (!controller.signal.aborted) setEpisodeData({ season, data: result });
+      })
+      .catch(() => { if (!controller.signal.aborted) setEpisodeError(season); });
+    return () => controller.abort();
+  }, [initialItem.tmdbId, season]);
 
-  onPlay,
+  useEffect(() => {
+    const controller = new AbortController();
+    loadPlayback(initialItem, controller.signal)
+      .then(result => { if (!controller.signal.aborted) setOptions(result); })
+      .catch(() => { if (!controller.signal.aborted) setLookupError(true); });
+    return () => { controller.abort(); launchRequest.current?.abort(); };
+  }, [initialItem]);
 
-  onToggleWatchlist,
+  const launch = async (selection: string) => {
+    launchRequest.current?.abort();
+    const controller = new AbortController();
+    launchRequest.current = controller;
+    setChecking(true);
+    setLookupError(false);
+    try {
+      const latest = await loadPlayback(initialItem, controller.signal);
+      if (controller.signal.aborted) return;
+      setOptions(latest);
+      if (selection === 'title' ? latest.sources.length : latest.episodes.some(episode => episode.id === selection))
+        setPlaying(selection);
+    } catch {
+      if (!controller.signal.aborted) setLookupError(true);
+    } finally {
+      if (!controller.signal.aborted) setChecking(false);
+    }
+  };
 
-  onSelectSimilar,
-
-}: DetailModalProps) {
-
-  const [item,setItem]=useState(initialItem);
-
-  const [similarItems,setSimilarItems]=useState<MediaItem[]>([]);
-
-  const [videos,setVideos]=useState<{name:string;url:string}[]>([]);
-
-  const [seasons,setSeasons]=useState<{number:number;name:string;count:number}[]>([]);
-
-  const [season,setSeason]=useState(1);
-
-  const [episodes,setEpisodes]=useState<{id:string;number:number;title:string;overview:string;runtime?:number;artwork:string}[]>([]);
-
-  const [loading,setLoading]=useState(false),[error,setError]=useState('');
-
-  const [episodeBusy,setEpisodeBusy]=useState(false),[episodeError,setEpisodeError]=useState('');
-
-  useEffect(()=>{setItem(initialItem);setSimilarItems([]);setVideos([]);setSeasons([]);setEpisodes([]);if(!initialItem.tmdbId)return;const controller=new AbortController();setLoading(true);setError('');fetch(`/api/tmdb?action=details&type=${initialItem.type==='series'?'tv':'movie'}&id=${initialItem.tmdbId}`,{signal:controller.signal}).then(async r=>{const d=await r.json();if(!r.ok)throw new Error(d.error);setItem(d.item);setSimilarItems(d.similar);setVideos(d.videos);setSeasons(d.seasons);setSeason(d.seasons[0]?.number||1);}).catch(()=>{if(!controller.signal.aborted)setError('Details are temporarily unavailable.');}).finally(()=>{if(!controller.signal.aborted)setLoading(false);});return()=>controller.abort();},[initialItem]);
-
-  useEffect(()=>{if(!initialItem.tmdbId||initialItem.type!=='series'||!seasons.length)return;const controller=new AbortController();setEpisodeBusy(true);setEpisodeError('');setEpisodes([]);fetch(`/api/tmdb?action=season&id=${initialItem.tmdbId}&season=${season}`,{signal:controller.signal}).then(async r=>{const d=await r.json();if(!r.ok)throw new Error();setEpisodes(d.episodes);}).catch(()=>{if(!controller.signal.aborted)setEpisodeError('Episodes are temporarily unavailable.');}).finally(()=>{if(!controller.signal.aborted)setEpisodeBusy(false);});return()=>controller.abort();},[initialItem.tmdbId,initialItem.type,season,seasons]);
-
-
+  const item = data?.item ?? initialItem;
+  const currentSeason = data?.seasons.find(entry => entry.number === season);
+  const currentEpisodes = episodeData?.season === season ? episodeData?.data : undefined;
+  const source = preferredSource(options?.sources ?? [], progress);
+  const episodes = (options?.episodes ?? []).map(entry => {
+    const metadata = entry.season === season ? currentEpisodes?.episodes.find(e => e.id === entry.id) : undefined;
+    return {...entry, title: metadata?.title ?? entry.title, source: preferredSource(entry.sources, progress) ?? entry.source};
+  });
+  const resume = (id: string) => progress[id]?.position > 0 && !progress[id]?.completed;
+  const trailer = data?.videos[0];
+  const logo = item.titleLogo;
 
   return (
-
-    <div
-
-      className="modal-backdrop-overlay"
-
-      onClick={(e) => {
-
-        if (e.target === e.currentTarget) onClose();
-
-      }}
-
-    >
-
-      <div className="netflix-detail-modal" role="dialog" aria-modal="true" aria-label={item.title}>
-
-        <button
-
-          type="button"
-
-          className="modal-close-btn"
-
-          aria-label="Close"
-
-          onClick={onClose}
-
-        >
-
-          <X size={20} />
-
-        </button>
-
-
-
-        <div className="modal-hero-header">
-
-          <Artwork
-
-            src={item.backdropUrl}
-
-            alt={item.title}
-
-            className="modal-header-image"
-
-          />
-
+    <dialog ref={dialog} className="netflix-detail-modal sf-detail" aria-label={item.title}
+      onCancel={event => { event.preventDefault(); if (!playing) onClose(); }}
+      onClick={event => { if (event.target === event.currentTarget) {
+        const bounds = event.currentTarget.getBoundingClientRect();
+        if (!playing && (event.clientX < bounds.left || event.clientX >= bounds.right || event.clientY < bounds.top || event.clientY >= bounds.bottom)) onClose();
+      } }}>
+      <div inert={Boolean(playing)}>
+        <header className="modal-hero-header">
+          <Artwork src={item.backdropUrl || item.posterUrl || options?.artwork?.backdrop || options?.artwork?.poster} alt="" className="modal-header-image" loading="eager" />
           <div className="modal-header-shade" />
-
-
-
+          <button ref={closeButton} className="modal-close-btn" aria-label="Close details" onClick={onClose}><X size={22} /></button>
           <div className="modal-header-content">
-
-            <h2 className="modal-title">{item.title}</h2>
-
+            <h1 className="modal-title">
+              {logo && !logoFailed ? <><img className="detail-title-logo" src={logo.url} alt="" onError={() => setLogoFailed(true)} /><span className="card-title-accessible">{item.title}</span></> : item.title}
+            </h1>
             <div className="modal-header-actions">
-
-              <button
-
-                type="button"
-
-                className="btn-billboard btn-play"
-
-            disabled={!canPlay(item.id)} title={!canPlay(item.id) ? "Video unavailable" : "Play"}
-
-                onClick={() => onPlay(item)}
-
-              >
-
-                <Play size={18} fill="currentColor" />
-
-                <span>Play</span>
-
-              </button>
-
-
-
-              <button
-
-                type="button"
-
-                className="card-action-btn icon-circle"
-
-                aria-label="Watchlist"
-
-                onClick={() => onToggleWatchlist(item)}
-
-              >
-
-                {inWatchlist ? <Check size={16} strokeWidth={2.8} /> : <Plus size={18} />}
-
-              </button>
-
-
-
-              <button
-
-                type="button"
-
-                className="card-action-btn icon-circle"
-
-                aria-label="Like"
-
-              >
-
-                <ThumbsUp size={15} />
-
-              </button>
-
+              {source && <button className="btn-billboard btn-play" disabled={checking} onClick={() => void launch('title')}><Play size={18} fill="currentColor" /> {resume(progressKey(source)) ? 'Resume' : source.credit ? 'Watch Now' : 'Play'}</button>}
+              {trailer && <a className="btn-billboard btn-mylist" href={trailer.url} target="_blank" rel="noreferrer" aria-label="Watch trailer on YouTube (opens in a new tab)"><Play size={17} /> Trailer</a>}
+              <button className="btn-billboard btn-mylist" aria-pressed={inWatchlist} onClick={() => onToggleWatchlist(item)}>{inWatchlist ? <Check size={18} /> : <Plus size={18} />} My List</button>
             </div>
-
           </div>
-
-        </div>
-
-
-
+        </header>
         <div className="modal-body-container">
-
-          <div className="modal-primary-details">
-
+          <div>
             <div className="modal-meta-row">
-
-              <span className="match-score">{item.rating!==undefined?`${item.rating.toFixed(1)} / 10`:`${item.matchScore}% Match`}</span>
-
-              <span className="modal-year">{item.year}</span>
-
-              <span className="card-rating">{item.maturityRating}</span>
-
-              <span className="modal-duration">{item.duration || (item.seasons ? `${item.seasons} Seasons` : '')}</span>
-
-
-
-
-
+              {item.year > 0 && <span>{item.year}</span>}
+              {item.type === 'series' && item.seasons ? <span>{item.seasons} {item.seasons === 1 ? 'season' : 'seasons'}</span> : item.runtime ? <span>{item.runtime} min</span> : item.duration && <span>{item.duration}</span>}
+              {item.rating !== undefined && <span className="detail-rating">TMDB {item.rating.toFixed(1)}/10</span>}
             </div>
-
-
-
             <p className="modal-synopsis">{item.overview}</p>
-
+            {source?.credit && <FilmAttribution title={item.title} credit={source.credit} />}
+            {lookupError && <p role="status">Could not check playback availability. Try again shortly.</p>}
+            {options && !lookupError && !source && episodes.length === 0 && <p className="detail-muted">{item.type === 'movie' ? 'Discover · Full video unavailable on StreamFrame.' : 'Full video unavailable on StreamFrame.'}</p>}
+            {error && <p role="alert">Some title details are temporarily unavailable.</p>}
+            {!error && !data && initialItem.tmdbId && <p role="status">Loading title details…</p>}
           </div>
-
-
-
           <div className="modal-secondary-details">
-
-            {item.cast && item.cast.length > 0 && (
-
-              <div className="detail-field">
-
-                <span className="field-label">Cast: </span>
-
-                <span className="field-value">{item.cast.join(', ')}</span>
-
-              </div>
-
-            )}
-
-            <div className="detail-field">
-
-              <span className="field-label">Genres: </span>
-
-              <span className="field-value">{item.genres.join(', ')}</span>
-
-            </div>
-
-            {item.creator && (
-
-              <div className="detail-field">
-
-                <span className="field-label">Creator: </span>
-
-                <span className="field-value">{item.creator}</span>
-
-              </div>
-
-            )}
-
+            {!!item.cast?.length && <p><strong>Cast:</strong> {item.cast.join(', ')}</p>}
+            {!!item.genres.length && <p><strong>Genres:</strong> {item.genres.join(', ')}</p>}
+            {item.creator && <p><strong>{item.type === 'series' ? 'Created by' : 'Directed by'}:</strong> {item.creator}</p>}
           </div>
-
         </div>
-
-
-
-        <section style={{padding:'0 32px 24px'}}>
-
-          {loading&&<p role="status">Loading title detailsâ€¦</p>}{error&&<p role="alert">{error}</p>}
-
-          {!canPlay(item.id)&&<p style={{color:'#aaa',marginBottom:16}}>Full video is not available on StreamFrame.</p>}
-
-          {videos.slice(0,2).map(v=><a key={v.url} className="btn-billboard btn-mylist" href={v.url} target="_blank" rel="noreferrer" style={{margin:'0 8px 16px 0'}}>Watch trailer: {v.name}</a>)}
-
-          {seasons.length>0&&<><label>Season <select aria-label="Season" value={season} onChange={e=>setSeason(Number(e.target.value))} style={{background:'#222',color:'white',padding:10}}>{seasons.map(s=><option key={s.number} value={s.number}>{s.name} ({s.count} episodes)</option>)}</select></label>
-
-          {episodeBusy&&<p role="status">Loading episodesâ€¦</p>}{episodeError&&<p role="alert">{episodeError}</p>}
-
-          {episodes.map(e=><article key={e.id} style={{display:'grid',gridTemplateColumns:'minmax(90px,25%) 1fr',gap:16,padding:'20px 0',borderBottom:'1px solid #333'}}><Artwork src={e.artwork} alt={e.title} className="episode-artwork"/><div><h3>{e.number}. {e.title}</h3><p style={{color:'#bbb',margin:'8px 0',lineHeight:1.5}}>{e.overview}</p><small>{e.runtime?`${e.runtime} min · `:''}Video unavailable</small></div></article>)}</>}
-
-        </section>
-
-        {/* More Like This Grid */}
-
-        {similarItems.length > 0 && (
-
-          <div className="modal-more-like-this">
-
-            <h3 className="section-title">More Like This</h3>
-
-            <div className="similar-cards-grid">
-
-              {similarItems.map((sim) => (
-
-                <div
-
-                  key={sim.id}
-
-                  className="similar-card"
-
-                  onClick={() => onSelectSimilar(sim)}
-
-                >
-
-                  <div className="similar-thumbnail-wrapper">
-
-                    <Artwork
-
-                      src={sim.backdropUrl}
-
-                      alt={sim.title}
-
-                      className="similar-thumbnail"
-
-                      loading="lazy"
-
-                    />
-
-                    <div className="similar-duration-tag">
-
-                      {sim.duration || (sim.seasons ? `${sim.seasons}S` : '')}
-
-                    </div>
-
-                  </div>
-
-                  <div className="similar-info">
-
-                    <div className="similar-meta">
-
-                      <span className="match-score">{sim.rating!==undefined?`${sim.rating.toFixed(1)} / 10`:`${sim.matchScore}% Match`}</span>
-
-                      <span className="card-rating">{sim.maturityRating}</span>
-
-                    </div>
-
-                    <h4 className="similar-title">{sim.title}</h4>
-
-                    <p className="similar-overview">{sim.overview}</p>
-
-                  </div>
-
-                </div>
-
-              ))}
-
-            </div>
-
+        {item.type === 'series' && data && <section className="detail-section" aria-labelledby="detail-episodes">
+          <div className="detail-section-heading">
+            <h2 id="detail-episodes">Episodes</h2>
+            {!!data.seasons.length && <select aria-label="Season" value={season} onChange={event => {
+              setEpisodeError(undefined);
+              setEpisodeData(undefined);
+              setSeason(Number(event.target.value));
+            }}>
+              {data.seasons.filter(s => s.number > 0).map(s => <option key={s.number} value={s.number}>Season {s.number}{s.name && s.name !== `Season ${s.number}` ? ` · ${s.name}` : ''}</option>)}
+              {data.seasons.some(s => s.number === 0) && <optgroup label="Specials"><option value={0}>{data.seasons.find(s => s.number === 0)?.name || 'Specials'} (Season 0)</option></optgroup>}
+            </select>}
           </div>
-
-        )}
-
+          {currentSeason && <div className="detail-season-summary">
+            {(currentEpisodes?.poster || currentSeason.poster) && <Artwork src={currentEpisodes?.poster || currentSeason.poster} alt="" className="detail-season-poster" />}
+            <span>{currentSeason.count} {currentSeason.count === 1 ? 'episode' : 'episodes'}</span>
+          </div>}
+          {season !== undefined && !currentEpisodes && (episodeError === season
+            ? <p role="alert">Episodes are temporarily unavailable.</p> : <p role="status">Loading episodes…</p>)}
+          {(season === undefined || currentEpisodes?.episodes.length === 0) && <p className="detail-muted">No episodes listed.</p>}
+          {currentEpisodes?.episodes.map(episode => {
+            const registered = episodes.find(entry => entry.id === episode.id);
+            const sourceId = registered ? progressKey(registered.source) : episode.id;
+            const saved = progress[sourceId] ?? progress[episode.id];
+            return <article className="detail-episode" key={episode.id}>
+              <span className="detail-episode-number" aria-label={`Episode ${episode.number}`}>{episode.number}</span>
+              <Artwork src={episode.artwork} alt={episode.title} className="episode-artwork" />
+              <div className="detail-episode-copy">
+                <h3>{episode.title}</h3>
+                <p className="detail-muted">{[episode.runtime ? `${episode.runtime} min` : '', episode.airDate].filter(Boolean).join(' · ')}</p>
+                {episode.overview && <p>{episode.overview}</p>}
+                {saved && <progress aria-label={`Watch progress for ${episode.title}`} value={saved.position} max={saved.duration} />}
+                {registered ? <button className="btn-billboard btn-mylist" disabled={checking} onClick={() => void launch(episode.id)}>{resume(sourceId) ? 'Resume' : 'Play'} episode</button>
+                  : <small className="detail-muted">Video unavailable</small>}
+              </div>
+            </article>;
+          })}
+        </section>}
+        <section className="detail-section" aria-labelledby="detail-related">
+          <h2 id="detail-related">More Like This</h2>
+          {!data && !error && item.tmdbId && <p role="status">Loading related titles…</p>}
+          {error && <p className="detail-muted">Related titles are temporarily unavailable.</p>}
+          {(!item.tmdbId || (data && !data.similar.length)) && <p className="detail-muted">No related titles listed.</p>}
+          <div className="similar-cards-grid">
+            {data?.similar.map(related => <a className="similar-card" aria-label={related.title} key={related.id} href={contentPath(related) || '/'}
+              onClick={event => {
+                if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                event.preventDefault();
+                onSelectSimilar(related);
+              }}>
+              <div className="similar-thumbnail-wrapper">
+                <Artwork src={related.backdropUrl} alt="" className="similar-thumbnail" />
+                <CardTitle item={related} />
+              </div>
+              <div className="similar-info"><p>{related.overview}</p></div>
+            </a>)}
+          </div>
+        </section>
       </div>
-
-    </div>
-
+      {playing && <VideoPlayer item={item} source={playing === 'title' ? source : undefined}
+        sources={options?.sources} recheckSources
+        episodes={playing === 'title' ? undefined : episodes} initialEpisodeId={playing === 'title' ? undefined : playing}
+        onClose={() => { setPlaying(undefined); void loadPlayback(initialItem).then(setOptions).catch(() => setLookupError(true)); }} />}
+    </dialog>
   );
-
 }

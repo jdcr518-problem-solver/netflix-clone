@@ -45,3 +45,5 @@ TMDB attribution appears in the footer. Review TMDB licensing before commercial 
 TypeScript and production build passed during development. Browser checks covered MP4/HLS playback, captions, quality selection, seeking, episode navigation, resume and error states. Fullscreen/PiP and comprehensive device testing remain pending. The current Next/PostCSS dependency tree has audit findings that should be reviewed before deployment.
 
 Movie/TV landscape cards load original TMDB PNG title logos near the viewport. English logos are preferred, then language-neutral and other-language artwork. Logo metadata is cached server-side for 24 hours and duplicate card requests are shared within a page session. Detail requests append image metadata. Missing or failed logos retain the regular accessible text title; portrait ranking cards retain their poster artwork. Screenshots: visual-review/logos/.
+See [Authorized video sources](data/README.md) for the local registry, management commands, and deployment notes.
+For scheduled local discovery and policy-based imports, see [Automated import synchronization](data/README.md#automated-import-synchronization).

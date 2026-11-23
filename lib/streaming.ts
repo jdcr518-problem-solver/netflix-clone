@@ -1,23 +1,18 @@
-import { MediaSource, Episode } from '../types/playback';
-export const RIGHTS_CLEARED_STREAMS: Record<string,string> = {
- default:'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
- tearsOfSteel:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',
- bigBuckBunny:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
- elephantsDream:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
- sintel:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4',
-};
-export const unavailable = (id:string):MediaSource => ({id,format:'mp4',availability:'unavailable',subtitles:[]});
-export const DEMO_MOVIE:MediaSource = {id:'demo-flower',url:RIGHTS_CLEARED_STREAMS.default,format:'mp4',availability:'available',label:'Flower — CC0 demonstration',subtitles:[{id:'en',label:'English demo captions',language:'en',url:'/subtitles/demo-en.vtt'},{id:'es',label:'Spanish demo captions',language:'es',url:'/subtitles/demo-es.vtt'}]};
-export const DEMO_EPISODES:Episode[] = [
- {id:'demo-e1',season:1,number:1,title:'Flower study',duration:'5 seconds',source:{...DEMO_MOVIE,id:'demo-e1'}},
- {id:'demo-e2',season:1,number:2,title:'Big Buck Bunny — HLS sample',source:{id:'demo-e2',format:'hls',availability:'available',url:'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',subtitles:[]}},
- {id:'demo-e3',season:2,number:1,title:'Unavailable episode example',source:unavailable('demo-e3')},
-];
-// Catalog metadata does not grant playback rights. Demo sources live only in /player-demo.
-export const AUTHORIZED_CATALOG_SOURCES: Record<string, MediaSource> = {};
-export function sourceFor(id:number):MediaSource {
- const key=id<0 ? `${Math.abs(id)%2?'tv':'movie'}:${Math.floor(Math.abs(id)/2)}` : `legacy:${id}`;
- return AUTHORIZED_CATALOG_SOURCES[key] || unavailable(key);
+import type { MediaSource, PlaybackProgress, PlaybackOptions } from '../types/playback';
+import type { MediaItem } from '../types/movie';
+
+export const unavailable = (id: string): MediaSource =>
+  ({id, format:'mp4', availability:'unavailable', subtitles:[]});
+
+export function preferredSource(sources: MediaSource[], progress: Record<string, PlaybackProgress>) {
+  return sources.filter(source => progress[source.id]?.position > 0 && !progress[source.id].completed)
+    .sort((a,b) => progress[b.id].updatedAt - progress[a.id].updatedAt)[0] ?? sources[0];
 }
-export function canPlay(id:number):boolean { return sourceFor(id).availability === 'available'; }
-export function resolveStreamSource(id:number):MediaSource { return sourceFor(id); }
+
+export async function loadPlayback(item: MediaItem, signal?: AbortSignal): Promise<PlaybackOptions> {
+  if (!item.tmdbId) return {availability:'unavailable', sources:[], episodes:[]};
+  const type = item.type === 'series' ? 'tv' : 'movie';
+  const response = await fetch(`/api/playback?type=${type}&id=${item.tmdbId}`, {signal});
+  if (!response.ok) throw new Error('Playback lookup failed.');
+  return response.json();
+}

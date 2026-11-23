@@ -9,7 +9,7 @@ export async function GET(req:NextRequest){const q=req.nextUrl.searchParams;cons
  if(!Number.isSafeInteger(id)||id<=0)return NextResponse.json({error:'Invalid title'},{status:400});
  if(action==='logo'&&(type==='movie'||type==='tv'))return NextResponse.json({logo:await titleLogo(type,id)});
  if(action==='details'&&(type==='movie'||type==='tv'))return NextResponse.json(await details(type,id));
- const n=Number(q.get('season'));if(action==='season'&&Number.isInteger(n)&&n>=0&&n<100)return NextResponse.json(await season(id,n));
+ const seasonParam=q.get('season');const n=seasonParam===null?NaN:Number(seasonParam);if(action==='season'&&Number.isSafeInteger(n)&&n>=0)return NextResponse.json(await season(id,n));
  const episode=Number(q.get('episode'));if(action==='episode'&&Number.isInteger(n)&&n>=0&&n<100&&Number.isInteger(episode)&&episode>0&&episode<1000){const d=await tmdb(`/tv/${id}/season/${n}/episode/${episode}`);return NextResponse.json({id:`tv:${id}:season:${n}:episode:${episode}`,title:d.name,overview:d.overview,runtime:d.runtime});}
  return NextResponse.json({error:'Unknown request'},{status:400});
  }catch(e){return NextResponse.json({error:e instanceof Error?e.message:'Catalog unavailable'},{status:503});}}

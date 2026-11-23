@@ -1457,3 +1457,56 @@ button:focus-visible, [tabindex]:focus-visible { outline: 2px solid white; outli
 .card-title-label.has-title-logo { height: 62%; padding: 16px 10px 9px; display:flex; align-items:flex-end; justify-content:center; background:linear-gradient(transparent,rgba(0,0,0,.65)); }
 .card-title-logo { display:block; width:82%; height:100%; object-fit:contain; object-position:center bottom; filter:drop-shadow(0 1px 3px rgba(0,0,0,.65)); }
 .card-title-accessible { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; border:0; }
+
+/* Details use the native dialog top layer for focus and background isolation. */
+.sf-detail {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  padding: 0;
+  border: 0;
+  color: #fff;
+  max-height: calc(100dvh - 48px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #686868 #181818;
+}
+.sf-detail::backdrop { background: rgb(0 0 0 / .75); }
+.sf-detail .modal-hero-header { height: clamp(260px, 53vw, 440px); }
+.sf-detail .modal-header-image { display: block; object-position: center 30%; }
+.sf-detail .modal-header-shade {
+  background: linear-gradient(0deg, var(--bg-secondary), transparent 65%), linear-gradient(65deg, rgb(0 0 0 / .55), transparent 72%);
+}
+.sf-detail .modal-header-actions, .sf-detail .modal-meta-row { flex-wrap: wrap; }
+.detail-title-logo { display: block; width: auto; height: auto; max-width: min(330px, 75%); max-height: 120px; object-fit: contain; }
+.detail-rating { border: 1px solid #777; border-radius: 4px; padding: 3px 6px; }
+.detail-muted { color: #b9b9b9; }
+.detail-section { padding: 0 36px 32px; }
+.detail-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.detail-section h2 { margin: 0 0 12px; }
+.detail-section-heading select { max-width: 60%; min-height: 42px; color: #fff; background: #292929; border: 1px solid #777; border-radius: 6px; padding: 6px 10px; }
+.detail-season-summary { display: flex; align-items: center; gap: 12px; color: #b9b9b9; margin: 12px 0; }
+.detail-season-poster { display: block; width: 42px; aspect-ratio: 2 / 3; border-radius: 4px; object-fit: cover; }
+.detail-episode { display: grid; grid-template-columns: 28px minmax(100px, 24%) minmax(0, 1fr); align-items: center; gap: 14px; padding: 18px 0; border-bottom: 1px solid #414141; }
+.detail-episode-number { text-align: center; font-size: 1.25rem; color: #bbb; }
+.detail-episode-copy { min-width: 0; }
+.detail-episode-copy h3 { margin: 0 0 4px; }
+.detail-episode-copy p { line-height: 1.45; margin: 5px 0; }
+.detail-episode-copy progress { display: block; margin: 8px 0; accent-color: #e50914; }
+.sf-detail .similar-card { display: block; color: inherit; text-decoration: none; overflow: hidden; }
+.sf-detail .similar-info p { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.45; }
+.sf-detail :focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.detail-route-error { padding: 48px 6vw; }
+@media (max-width: 600px) {
+  .sf-detail { width: 100%; height: 100dvh; max-width: 100%; max-height: 100dvh; border-radius: 0; }
+  .sf-detail .modal-header-content { left: 18px; right: 18px; bottom: 16px; }
+  .sf-detail .modal-title { font-size: 30px; }
+  .detail-title-logo { max-height: 84px; }
+  .sf-detail .modal-body-container { grid-template-columns: 1fr; gap: 14px; padding: 16px 18px 24px; }
+  .detail-section { padding: 0 18px 24px; }
+  .detail-episode { grid-template-columns: 24px minmax(0, 112px) 1fr; gap: 8px; align-items: start; }
+  .detail-episode-copy { grid-column: 2 / -1; }
+  .sf-detail .similar-cards-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+@media (prefers-reduced-motion: reduce) { .sf-detail { animation: none; } }
