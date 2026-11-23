@@ -5,7 +5,14 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "sources": "node --experimental-strip-types scripts/sources.ts",
+    "test:sources": "node --experimental-strip-types --test scripts/sources.test.ts",
+    "dev:admin": "node scripts/local-admin.mjs",
+    "sources:sync": "node --conditions=react-server --experimental-strip-types scripts/sync-sources.ts",
+    "sources:package": "node --conditions=react-server --experimental-strip-types scripts/import-package.ts",
+    "test:importer": "node --conditions=react-server --experimental-strip-types --test scripts/importer.test.ts",
+    "test:packages": "node --conditions=react-server --experimental-strip-types --test scripts/supplier-package.test.ts"
   },
   "dependencies": {
     "hls.js": "^1.7.4",

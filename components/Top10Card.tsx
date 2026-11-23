@@ -1,6 +1,5 @@
 'use client';
 
-import { canPlay } from '../lib/streaming';
 import { Artwork } from './Artwork';
 import React from 'react';
 import { Play, Plus, Check } from 'lucide-react';
@@ -45,7 +44,7 @@ export function Top10Card({
             <button
               type="button"
               className="card-action-btn play-circle"
-                disabled={!canPlay(item.id)} title={!canPlay(item.id) ? "Video unavailable" : "Play"}
+                disabled={!item.playbackAvailable} title={!item.playbackAvailable ? "Video unavailable" : "Play"}
               aria-label="Play"
               onClick={(e) => {
                 e.stopPropagation();

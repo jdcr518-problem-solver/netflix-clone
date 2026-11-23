@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Navbar } from '../components/Navbar';
 import { BillboardHero } from '../components/BillboardHero';
 import { MovieRow } from '../components/MovieRow';
@@ -9,6 +9,10 @@ import { VideoPlayer } from '../components/VideoPlayer';
 import { SearchDrawer } from '../components/SearchDrawer';
 import { MediaItem, CategoryRow } from '../types/movie';
 import { ALL_CATALOG_ITEMS as LEGACY_ITEMS } from '../lib/catalog';
+import {loadPlayback, preferredSource} from '../lib/streaming';
+import {readProgress} from '../lib/playback-storage';
+import type {MediaSource} from '../types/playback';
+import { contentPath } from '../lib/content-path';
 import { getWatchlist, toggleWatchlist } from '../lib/storage';
 
 export default function Home({rows,hero,catalogError}:{rows:CategoryRow[];hero:MediaItem|null;catalogError:string|null}) {
@@ -30,7 +34,7 @@ export default function Home({rows,hero,catalogError}:{rows:CategoryRow[];hero:M
   const [activeTab, setActiveTab] = useState<string>('home');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedItem, setSelectedItem] = useState<MediaItem | null>(null);
-  const [playingItem, setPlayingItem] = useState<MediaItem | null>(null);
+  const [playingItem, setPlayingItem] = useState<{item:MediaItem;source:MediaSource;sources:MediaSource[]} | null>(null);
   const [watchlist, setWatchlist] = useState<number[]>([]);
 
   // Load persistent watchlist from localStorage
@@ -45,12 +49,96 @@ export default function Home({rows,hero,catalogError}:{rows:CategoryRow[];hero:M
     setWatchlist(getWatchlist());
   };
 
+  const [availableMovies, setAvailableMovies] = useState<Set<number>>();
+  const [watchNow, setWatchNow] = useState<MediaItem[]>([]);
+  const watchNowIds = availableMovies ? [...availableMovies].sort((a,b) => a-b).join(',') : '';
+  useEffect(() => {
+    if (!watchNowIds) return;
+    const controller = new AbortController();
+    const load = async () => {
+      try {
+        const response = await fetch('/api/playback/catalog',{signal:controller.signal});
+        if (!response.ok) return;
+        const data = await response.json();
+        if (!controller.signal.aborted) setWatchNow(data.items);
+      } catch { /* Keep already loaded cards while availability is refreshed. */ }
+    };
+    void load();
+    return () => controller.abort();
+  }, [watchNowIds]);
+
+  const playbackRequest = useRef<AbortController | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    let pending = false;
+    const refresh = async () => {
+      if (pending || document.visibilityState !== 'visible') return;
+      pending = true;
+      try {
+        const response = await fetch('/api/playback/availability', {signal:controller.signal});
+        if (!response.ok) throw new Error('Availability lookup failed');
+        const ids: number[] = await response.json();
+        if (!controller.signal.aborted) setAvailableMovies(new Set(ids));
+      } catch {
+        if (!controller.signal.aborted) setAvailableMovies(new Set());
+      } finally { pending = false; }
+    };
+    void refresh();
+    const timer = window.setInterval(refresh, 30_000);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      controller.abort();
+      playbackRequest.current?.abort();
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, []);
+
+  const withAvailability = (item: MediaItem) => availableMovies
+    ? {...item, playbackAvailable: item.type === 'movie' && availableMovies.has(item.tmdbId ?? 0)}
+    : item;
+
   const handlePlay = (item: MediaItem) => {
-    setPlayingItem(item);
+    playbackRequest.current?.abort();
+    const controller = new AbortController();
+    playbackRequest.current = controller;
+    void loadPlayback(item, controller.signal).then(options => {
+      if (controller.signal.aborted) return;
+      const source = preferredSource(options.sources, readProgress());
+      if (source) setPlayingItem({item, source, sources:options.sources});
+      else {
+        setAvailableMovies(previous => {
+          if (!previous || !item.tmdbId) return previous;
+          const next = new Set(previous);
+          next.delete(item.tmdbId);
+          return next;
+        });
+        handleOpenDetails(item);
+      }
+    }).catch(() => { if (!controller.signal.aborted) handleOpenDetails(item); });
   };
 
+  useEffect(() => {
+    const sync = () => setSelectedItem(window.history.state?.streamframeDetails?.item ?? null);
+    window.addEventListener('popstate', sync);
+    return () => window.removeEventListener('popstate', sync);
+  }, []);
+
   const handleOpenDetails = (item: MediaItem) => {
+    const path = contentPath(item);
+    if (path && window.location.pathname !== path) {
+      const depth = (window.history.state?.streamframeDetails?.depth ?? 0) + 1;
+      window.history.pushState({ streamframeDetails: { item, depth } }, '', path);
+    }
     setSelectedItem(item);
+  };
+
+  const closeDetails = () => {
+    const depth = window.history.state?.streamframeDetails?.depth;
+    if (depth) window.history.go(-depth);
+    else setSelectedItem(null);
   };
 
   useEffect(()=>{setSearchPage(1);setSearchResults([]);},[searchQuery]);
@@ -88,6 +176,8 @@ export default function Home({rows,hero,catalogError}:{rows:CategoryRow[];hero:M
 
   const rowsToDisplay: CategoryRow[] = useMemo(() => {
     const rows = [...HOME_PAGE_ROWS];
+    const playable = watchNow.filter(item => item.tmdbId && availableMovies?.has(item.tmdbId));
+    if (playable.length) rows.unshift({id:'watch-now',title:'Watch Now',type:'landscape',items:playable});
     const mylistItems = ALL_CATALOG_ITEMS.filter((item) => watchlist.includes(item.id));
     if (mylistItems.length > 0) {
       rows.splice(1, 0, {
@@ -98,7 +188,7 @@ export default function Home({rows,hero,catalogError}:{rows:CategoryRow[];hero:M
       });
     }
     return rows;
-  }, [watchlist, ALL_CATALOG_ITEMS, rows]);
+  }, [watchlist, ALL_CATALOG_ITEMS, rows, watchNow, availableMovies]);
 
   return (
     <main className="streamframe-app">
@@ -122,7 +212,7 @@ export default function Home({rows,hero,catalogError}:{rows:CategoryRow[];hero:M
       {searchQuery.trim().length > 0 ? (
         <SearchDrawer
           title={`Results for "${searchQuery}"`}
-          items={searchResults}
+          items={searchResults.map(withAvailability)}
           busy={searchBusy}
           watchlist={watchlist}
           onPlay={handlePlay}
@@ -144,7 +234,7 @@ export default function Home({rows,hero,catalogError}:{rows:CategoryRow[];hero:M
               : 'Kids'
           }
           filters={['series','movies','popular'].includes(activeTab)?<label style={{display:'block',marginBottom:24}}>Genre <select aria-label="Genre" value={genre} onChange={e=>setGenre(e.target.value)} style={{background:'#222',color:'#fff',padding:8,border:'1px solid #666',borderRadius:4}}><option value="">All genres</option>{genreOptions.map(g=><option key={g.id} value={g.id}>{g.name}</option>)}</select></label>:undefined}
-          items={tabFilteredItems}
+          items={tabFilteredItems.map(withAvailability)}
           busy={['series','movies','popular'].includes(activeTab)&&categoryBusy}
           watchlist={watchlist}
           onPlay={handlePlay}
@@ -155,7 +245,7 @@ export default function Home({rows,hero,catalogError}:{rows:CategoryRow[];hero:M
         /* Default Home Experience matching reference screenshot */
         <>
           {FEATURED_HERO && <BillboardHero
-            item={FEATURED_HERO}
+            item={withAvailability(FEATURED_HERO)}
             inWatchlist={watchlist.includes(FEATURED_HERO.id)}
             onPlay={handlePlay}
             onToggleWatchlist={handleToggleWatchlist}
@@ -166,7 +256,7 @@ export default function Home({rows,hero,catalogError}:{rows:CategoryRow[];hero:M
             {rowsToDisplay.map((row) => (
               <MovieRow
                 key={row.id}
-                row={row}
+                row={{...row, items:row.items.map(withAvailability)}}
                 watchlist={watchlist}
                 onPlay={handlePlay}
                 onToggleWatchlist={handleToggleWatchlist}
@@ -181,7 +271,10 @@ export default function Home({rows,hero,catalogError}:{rows:CategoryRow[];hero:M
       {/* Streaming Video Player Overlay */}
       {playingItem && (
         <VideoPlayer
-          item={playingItem}
+          item={playingItem.item}
+          source={playingItem.source}
+          sources={playingItem.sources}
+          recheckSources
           onClose={() => setPlayingItem(null)}
         />
       )}
@@ -189,12 +282,12 @@ export default function Home({rows,hero,catalogError}:{rows:CategoryRow[];hero:M
       {/* Netflix Detail Modal Overlay */}
       {selectedItem && (
         <DetailModal
+          key={selectedItem.id}
           item={selectedItem}
           inWatchlist={watchlist.includes(selectedItem.id)}
-          onClose={() => setSelectedItem(null)}
-          onPlay={handlePlay}
+          onClose={closeDetails}
           onToggleWatchlist={handleToggleWatchlist}
-          onSelectSimilar={(sim) => setSelectedItem(sim)}
+          onSelectSimilar={handleOpenDetails}
         />
       )}
 

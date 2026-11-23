@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "minimumIntervalMinutes": 60,
+  "pageSize": 4,
+  "discovery": [
+    {"provider": "blender", "collection": "blender-open-movies"},
+    {"provider": "archive", "collection": "opensource_movies"}
+  ],
+  "policies": []
+}

@@ -1,5 +1,4 @@
 import { MediaItem, CategoryRow } from '../types/movie';
-import { RIGHTS_CLEARED_STREAMS } from './streaming';
 
 export const FEATURED_HERO: MediaItem = {
   id: 101,
@@ -18,7 +17,7 @@ export const FEATURED_HERO: MediaItem = {
   rank: 1,
   isOriginal: true,
   badgeText: '#1 in TV Shows Today',
-  videoUrl: RIGHTS_CLEARED_STREAMS.tearsOfSteel,
+  videoUrl: '',
   cast: ['Winona Ryder', 'David Harbour', 'Millie Bobby Brown', 'Finn Wolfhard'],
   creator: 'The Duffer Brothers',
 };
@@ -38,7 +37,7 @@ export const TOP_PICKS_ITEMS: MediaItem[] = [
     duration: '1h 58m',
     genres: ['Action', 'Comedy', 'Heist'],
     isOriginal: true,
-    videoUrl: RIGHTS_CLEARED_STREAMS.sintel,
+    videoUrl: '',
     cast: ['Dwayne Johnson', 'Ryan Reynolds', 'Gal Gadot'],
   },
   {
@@ -55,7 +54,7 @@ export const TOP_PICKS_ITEMS: MediaItem[] = [
     seasons: 3,
     genres: ['Romantic', 'Drama', 'Period Piece'],
     isOriginal: true,
-    videoUrl: RIGHTS_CLEARED_STREAMS.elephantsDream,
+    videoUrl: '',
     cast: ['Nicola Coughlan', 'Luke Newton', 'Jonathan Bailey'],
   },
   {
@@ -72,7 +71,7 @@ export const TOP_PICKS_ITEMS: MediaItem[] = [
     seasons: 6,
     genres: ['Docuseries', 'Sports', 'Motorsport'],
     isOriginal: true,
-    videoUrl: RIGHTS_CLEARED_STREAMS.bigBuckBunny,
+    videoUrl: '',
     cast: ['Max Verstappen', 'Lewis Hamilton', 'Christian Horner'],
   },
   {
@@ -89,7 +88,7 @@ export const TOP_PICKS_ITEMS: MediaItem[] = [
     seasons: 1,
     genres: ['Drama', 'Crime', 'True Story'],
     isOriginal: true,
-    videoUrl: RIGHTS_CLEARED_STREAMS.tearsOfSteel,
+    videoUrl: '',
     cast: ['Julia Garner', 'Anna Chlumsky', 'Arian Moayed'],
   },
   {
@@ -106,7 +105,7 @@ export const TOP_PICKS_ITEMS: MediaItem[] = [
     seasons: 4,
     genres: ['Kids', 'Animation', 'Comedy'],
     isOriginal: true,
-    videoUrl: RIGHTS_CLEARED_STREAMS.default,
+    videoUrl: '',
   },
   {
     id: 107,
@@ -121,7 +120,7 @@ export const TOP_PICKS_ITEMS: MediaItem[] = [
     seasons: 2,
     genres: ['Sci-Fi', 'Thriller'],
     isOriginal: true,
-    videoUrl: RIGHTS_CLEARED_STREAMS.sintel,
+    videoUrl: '',
   },
 ];
 
@@ -140,7 +139,7 @@ export const TOP_10_FILMS: MediaItem[] = [
     duration: '1h 52m',
     genres: ['Mystery', 'Thriller'],
     badgeText: 'Recently Added',
-    videoUrl: RIGHTS_CLEARED_STREAMS.sintel,
+    videoUrl: '',
   },
   {
     id: 202,
@@ -156,7 +155,7 @@ export const TOP_10_FILMS: MediaItem[] = [
     duration: '1h 53m',
     genres: ['Action', 'Sci-Fi', 'Dystopian'],
     badgeText: 'Recently Added',
-    videoUrl: RIGHTS_CLEARED_STREAMS.tearsOfSteel,
+    videoUrl: '',
   },
   {
     id: 203,
@@ -171,7 +170,7 @@ export const TOP_10_FILMS: MediaItem[] = [
     maturityRating: '13+',
     duration: '1h 45m',
     genres: ['Animation', 'Action', 'Fantasy'],
-    videoUrl: RIGHTS_CLEARED_STREAMS.elephantsDream,
+    videoUrl: '',
   },
   {
     id: 204,
@@ -187,7 +186,7 @@ export const TOP_10_FILMS: MediaItem[] = [
     duration: '1h 38m',
     genres: ['Documentary', 'Crime'],
     badgeText: 'Recently Added',
-    videoUrl: RIGHTS_CLEARED_STREAMS.bigBuckBunny,
+    videoUrl: '',
   },
   {
     id: 205,
@@ -203,7 +202,7 @@ export const TOP_10_FILMS: MediaItem[] = [
     duration: '2h 11m',
     genres: ['Action', 'Sci-Fi'],
     badgeText: 'Recently Added',
-    videoUrl: RIGHTS_CLEARED_STREAMS.default,
+    videoUrl: '',
   },
 ];
 
@@ -222,7 +221,7 @@ export const TOP_10_SERIES: MediaItem[] = [
     seasons: 2,
     genres: ['Crime', 'Drama', 'Psychological'],
     badgeText: 'Recently Added',
-    videoUrl: RIGHTS_CLEARED_STREAMS.sintel,
+    videoUrl: '',
   },
   {
     id: 302,
@@ -238,7 +237,7 @@ export const TOP_10_SERIES: MediaItem[] = [
     seasons: 3,
     genres: ['Reality TV', 'Baking', 'Comedy'],
     badgeText: 'Recently Added',
-    videoUrl: RIGHTS_CLEARED_STREAMS.elephantsDream,
+    videoUrl: '',
   },
   {
     id: 303,
@@ -254,7 +253,7 @@ export const TOP_10_SERIES: MediaItem[] = [
     seasons: 1,
     genres: ['Drama', 'Military', 'Action'],
     badgeText: 'Recently Added',
-    videoUrl: RIGHTS_CLEARED_STREAMS.tearsOfSteel,
+    videoUrl: '',
   },
   {
     id: 304,
@@ -270,7 +269,7 @@ export const TOP_10_SERIES: MediaItem[] = [
     seasons: 2,
     genres: ['Horror', 'Documentary'],
     badgeText: 'Recently Added',
-    videoUrl: RIGHTS_CLEARED_STREAMS.bigBuckBunny,
+    videoUrl: '',
   },
   {
     id: 305,
@@ -286,7 +285,7 @@ export const TOP_10_SERIES: MediaItem[] = [
     seasons: 7,
     genres: ['Reality TV', 'Romance'],
     badgeText: 'New Season',
-    videoUrl: RIGHTS_CLEARED_STREAMS.default,
+    videoUrl: '',
   },
 ];
 

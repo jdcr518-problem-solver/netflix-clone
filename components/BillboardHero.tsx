@@ -1,6 +1,5 @@
 'use client';
 
-import { canPlay } from '../lib/streaming';
 import { Artwork } from './Artwork';
 import React, { useState } from 'react';
 import { Play, Plus, Check, Volume2, VolumeX } from 'lucide-react';
@@ -60,7 +59,7 @@ export function BillboardHero({
           <button
             type="button"
             className="btn-billboard btn-play"
-            disabled={!canPlay(item.id)} title={!canPlay(item.id) ? "Video unavailable" : "Play"}
+            disabled={!item.playbackAvailable} title={!item.playbackAvailable ? "Video unavailable" : "Play"}
             onClick={() => onPlay(item)}
           >
             <Play size={18} fill="currentColor" />

@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "id": "demo-flower",
+      "target": {
+        "namespace": "demo",
+        "type": "movie",
+        "demoId": "flower"
+      },
+      "url": "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+      "format": "mp4",
+      "label": "Flower \u2014 CC0 demonstration",
+      "enabled": true,
+      "rightsReference": "MDN interactive examples: CC0 flower sample.",
+      "createdAt": "2026-11-22T00:00:00.000Z",
+      "updatedAt": "2026-11-22T00:00:00.000Z",
+      "subtitles": [
+        {
+          "id": "en",
+          "label": "English demo captions",
+          "language": "en",
+          "url": "/subtitles/demo-en.vtt"
+        },
+        {
+          "id": "es",
+          "label": "Spanish demo captions",
+          "language": "es",
+          "url": "/subtitles/demo-es.vtt"
+        }
+      ]
+    },
+    {
+      "id": "demo-e1",
+      "target": {
+        "namespace": "demo",
+        "type": "episode",
+        "demoId": "sample-series",
+        "season": 1,
+        "episode": 1
+      },
+      "url": "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+      "format": "mp4",
+      "label": "Flower study",
+      "enabled": true,
+      "rightsReference": "MDN interactive examples: CC0 flower sample.",
+      "createdAt": "2026-11-22T00:00:00.000Z",
+      "updatedAt": "2026-11-22T00:00:00.000Z",
+      "subtitles": [
+        {
+          "id": "en",
+          "label": "English demo captions",
+          "language": "en",
+          "url": "/subtitles/demo-en.vtt"
+        },
+        {
+          "id": "es",
+          "label": "Spanish demo captions",
+          "language": "es",
+          "url": "/subtitles/demo-es.vtt"
+        }
+      ]
+    },
+    {
+      "id": "demo-e2",
+      "target": {
+        "namespace": "demo",
+        "type": "episode",
+        "demoId": "sample-series",
+        "season": 1,
+        "episode": 2
+      },
+      "url": "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
+      "format": "hls",
+      "label": "Big Buck Bunny \u2014 HLS sample",
+      "enabled": true,
+      "rightsReference": "Mux public HLS test stream; Blender Foundation Big Buck Bunny, CC BY 3.0.",
+      "createdAt": "2026-11-22T00:00:00.000Z",
+      "updatedAt": "2026-11-22T00:00:00.000Z"
+    }
+  ]
+}
