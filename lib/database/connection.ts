@@ -35,7 +35,7 @@ export function databasePool(access:DatabaseAccess):SqlPool {
   let pool=pools.get(access);
   if (!pool) {
     pool=new pg.Pool(connectionOptions(access));
-    pool.on('error',()=>console.error('Database connection became unavailable.'));
+    pool.on('error',()=>console.error(JSON.stringify({event:'database_connection_failed',access})));
     pools.set(access,pool);
   }
   return pool;

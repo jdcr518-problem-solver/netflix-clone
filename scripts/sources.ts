@@ -16,6 +16,7 @@ async function input(path: string) {
 }
 
 async function main() {
+  if(process.env.NODE_ENV==='production') throw new Error('Local JSON administration is disabled in production.');
   if (process.env.STREAMFRAME_REGISTRY_MODE === 'postgres') throw new Error('Use npm run sources:database for operator database commands. This CLI manages local JSON only.');
   if ((command === 'list' || command === 'validate') && !argument) {
     const sources = await readRegistryFile(registryPath);
@@ -29,7 +30,6 @@ async function main() {
     (command === 'update' && Boolean(inputFile))
   );
   if (!validArgs) throw new Error('Usage: sources list | validate | add <json-file> | update <id> <json-file> | remove <id> | enable <id> | disable <id>');
-  if (process.env.NODE_ENV === 'production') throw new Error('Registry changes are disabled in production.');
 
   const patch = command === 'add' ? await input(argument) : command === 'update' ? await input(inputFile) : undefined;
   await mutateRegistry(registryPath, command as RegistryCommand, argument, patch);

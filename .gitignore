@@ -69,3 +69,4 @@ service-account*.json
 .pgpass
 .pg_service.conf
 pgpass.conf
+/data/supplier-packages/

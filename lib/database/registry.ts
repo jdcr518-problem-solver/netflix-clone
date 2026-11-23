@@ -1,4 +1,5 @@
 import 'server-only';
+import {productionOperation,type Operation} from '../operations.ts';
 import { createHash, randomUUID } from 'node:crypto';
 import { validateRegistry, validReleaseReview, type RegistrySource } from '../registry-schema.ts';
 import { applyRegistryMutation, RegistryConflict, type RegistryCommand } from '../registry-mutation.ts';
@@ -48,11 +49,16 @@ export class PostgresRegistry implements RegistryStore {
     if (!/^[a-zA-Z0-9_.:@-]{1,120}$/.test(actor)) throw new Error('A stable operator audit identity is required.');
     this.pool=pool; this.access=access; this.actor=actor;
   }
-  private operator() {if (this.access!=='operator') throw new Error('Operator database access is required.');}
+  private async operator(operation:Operation) {
+    if (this.access!=='operator') throw new Error('Operator database access is required.');
+    const identity=await productionOperation(operation);
+    if(identity) this.actor=identity;
+  }
   private async rows(client:SqlClient,all=false) {
     return (await client.query(`SELECT record, revoked_at FROM streamframe.sources${all?'':' WHERE revoked_at IS NULL'} ORDER BY id`)).rows;
   }
   async read(target?: {type:'movie'|'tv';id:number}) {
+    if(this.access==='operator') await this.operator('inspect');
     const client=await this.pool.connect();
     try {
       const relation=this.access==='reader'?'streamframe.playback_records':'streamframe.sources';
@@ -120,11 +126,15 @@ export class PostgresRegistry implements RegistryStore {
     return next;
   }
   async mutate(command:RegistryCommand,id:string,patch?:object,version?:string) {
-    this.operator();
+    const permissions:Record<RegistryCommand,Operation>={approve:'publish','approve-package':'publish',add:'edit',update:'edit',enable:'publish',disable:'disable',remove:'disable'};
+    if(!Object.hasOwn(permissions,command)) throw new Error('Unknown registry command.');
+    await this.operator(permissions[command]);
+    if(command==='add' && patch && (('provenance' in patch && patch.provenance) || ('supplierRelease' in patch && patch.supplierRelease))) throw new Error('Use reviewed publication.');
+    if(command==='update' && patch && 'enabled' in patch) await this.operator(patch.enabled?'publish':'disable');
     return transaction(this.pool,async client=>{await this.lock(client); return this.change(client,command,id,patch,version);});
   }
   async revoke(id:string,reason:string) {
-    this.operator();
+    await this.operator('disable');
     if (!reason.trim() || reason.length>500) throw new Error('A revocation reason is required (up to 500 characters).');
     await transaction(this.pool,async client=>{
       await this.lock(client);
@@ -134,7 +144,7 @@ export class PostgresRegistry implements RegistryStore {
     });
   }
   async migrate(records:RegistrySource[],apply=false) {
-    this.operator();
+    await this.operator('migrate');
     validateRegistry({version:1,sources:records},'tmdb');
     records.forEach(rejectEmbeddedSecrets);
     const selected=records.filter(approved).sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);
@@ -162,7 +172,7 @@ export class PostgresRegistry implements RegistryStore {
     });
   }
   async rollbackMigration(batch:string,apply=false) {
-    this.operator();
+    await this.operator('migrate');
     if (!/^[a-f0-9]{64}$/.test(batch)) throw new Error('Invalid migration batch ID.');
     return transaction(this.pool,async client=>{
       await this.lock(client);
@@ -183,7 +193,7 @@ export class PostgresRegistry implements RegistryStore {
     });
   }
   async checkpoint(id:string):Promise<ImportState> {
-    this.operator();
+    await this.operator('inspect');
     const client=await this.pool.connect();
     try {
       const result=await client.query('SELECT state FROM streamframe.import_checkpoints WHERE id=$1',[id]);
@@ -191,7 +201,7 @@ export class PostgresRegistry implements RegistryStore {
     } finally {client.release();}
   }
   async withImportSession<T>(id:string,work:(session:ImportSession)=>Promise<T>):Promise<T> {
-    this.operator();
+    await this.operator('sync');
     if (!/^[a-zA-Z0-9_-]{1,80}$/.test(id)) throw new Error('Invalid checkpoint ID.');
     const token=randomUUID();
     await transaction(this.pool,async client=>{
@@ -200,6 +210,7 @@ export class PostgresRegistry implements RegistryStore {
       if(!result.rows.length) throw new RegistryConflict('Another synchronization holds the checkpoint lease.');
     });
     const save=async (client:SqlClient,state:ImportState)=>{
+      await this.operator('sync');
       validateImportState(state);
       const result=await client.query(`UPDATE streamframe.import_checkpoints SET state=$3::jsonb,revision=revision+1,
         updated_at=clock_timestamp(),lease_until=clock_timestamp()+interval '90 seconds'

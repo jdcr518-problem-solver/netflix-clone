@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { checkMedia } from '../lib/importer/media.ts';
 import { checkOwnedMedia } from '../lib/importer/owned-media.ts';
-import { approvedMediaUrl, evaluatePolicy, parseConfig, type Edition, type ImportConfig } from '../lib/importer/policy.ts';
+import { rightsSnapshot, reviewedProductionPolicy, approvedMediaUrl, evaluatePolicy, parseConfig, type Edition, type ImportConfig } from '../lib/importer/policy.ts';
 import { readImportState, synchronize, uniqueMatch } from '../lib/importer/sync.ts';
 import { discoverImportPage } from '../lib/providers/index.ts';
 import { isReleaseMovie, validateRegistry } from '../lib/registry-schema.ts';
@@ -199,4 +199,17 @@ test('provider errors retry once and preserve the page; playback failure leaves 
     assert.equal(result.state.history[0].playbackFailed,1);
     await assert.rejects(readFile(join(dir,'sources.local.json')), {code:'ENOENT'});
   }finally{await rm(dir,{recursive:true,force:true});}
+});
+
+test('production publication pins both policy bytes and observed publisher rights',()=>{
+  const approved=structuredClone(config);
+  approved.policies[0].editions![0].rightsSnapshot=rightsSnapshot(candidate);
+  const bytes=Buffer.from(JSON.stringify(approved));
+  const digest=createHash('sha256').update(bytes).digest('hex');
+  assert.throws(()=>reviewedProductionPolicy(Buffer.from(JSON.stringify(config)),digest));
+  const unpinned=Buffer.from(JSON.stringify(config));
+  assert.throws(()=>reviewedProductionPolicy(unpinned,createHash('sha256').update(unpinned).digest('hex')));
+  const policy=reviewedProductionPolicy(bytes,digest);
+  assert.equal(evaluatePolicy(policy,candidate).status,'eligible');
+  assert.equal(evaluatePolicy(policy,{...candidate,licenseClaim:'Revised distribution terms'}).status,'pending');
 });

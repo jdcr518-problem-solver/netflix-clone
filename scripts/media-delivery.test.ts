@@ -26,11 +26,12 @@ test('rights, geography, disabled and missing origins gate grant issuance',()=>{
   assert.ok(deliver({...entry,target:{namespace:'tmdb',type:'episode',tmdbId:42,season:2,episode:1}},'PK',config));
 });
 test('gateway authorizes every HLS child, caption, audio and byte-range request',async t=>{
+  const movieEntry={...entry,format:'mp4' as const,url:base+'feature.mp4'};
   const granted=deliver(entry,'PK',config)!;
   const keys:string[]=[];
   const origin:MediaOrigin={async read(key,range){keys.push(key);return {body:null,length:4,type:'video/mp4',contentRange:range?'bytes 8-11/12':undefined};}};
   assert.equal(new URL(granted.url).origin,config.origin);
-  const get=(url:string,country='PK',revoked=false,headers?:HeadersInit)=>serveMedia(new Request(url,{headers}),config,origin,site,country,async()=>revoked);
+  const get=(url:string,country='PK',revoked=false,headers?:HeadersInit)=>serveMedia(new Request(url,{headers}),config,origin,site,country,async()=>revoked?undefined:url.endsWith('feature.mp4')?movieEntry:entry);
   for(const name of ['main.m3u8','high.m3u8','seg.ts','audio.aac','en.vtt']){
     assert.equal((await get(new URL(name,granted.url).href)).status,200);
     assert.equal(keys.at(-1),group+'/'+name);
@@ -42,7 +43,7 @@ test('gateway authorizes every HLS child, caption, audio and byte-range request'
   assert.equal((await get(movie.url,'PK',false,{Range:'invalid'})).status,416);
   assert.equal((await get(movie.url,'US')).status,403);assert.equal((await get(movie.url,'PK',true)).status,403);
   assert.equal((await get(movie.url.replace('/'+group+'/', '/'+'2'.repeat(64)+'/'))).status,403);
-  assert.equal((await serveMedia(new Request(movie.url),config,{read:async()=>{throw Error();}},site,'PK',async()=>false)).status,503);
+  assert.equal((await serveMedia(new Request(movie.url),config,{read:async()=>{throw Error();}},site,'PK',async()=>({...entry,format:'mp4',url:base+'feature.mp4'}))).status,503);
   t.mock.timers.enable({apis:['Date'],now:Date.now()+14000*1000});assert.equal((await get(movie.url)).status,403);
 });
 test('immutable package plan covers adaptive video, audio and captions and resumes interrupted staging',async()=>{
@@ -90,6 +91,31 @@ test('gateway forwards exact MP4 range to the private S3 origin and returns thos
     return {ContentLength:3,ContentRange:'bytes 4-6/10',ContentType:'video/mp4',Body:{transformToWebStream:()=>new Blob([bytes.slice(4,7)]).stream()}};
   });
   const movie=deliver({...entry,format:'mp4',url:base+'feature.mp4'},'PK',config)!;
-  const response=await serveMedia(new Request(movie.url,{headers:{Range:'bytes=4-6',Origin:site}}),config,s3Origin(client,'private-fixture'),site,'PK',async()=>false);
+  const response=await serveMedia(new Request(movie.url,{headers:{Range:'bytes=4-6',Origin:site}}),config,s3Origin(client,'private-fixture'),site,'PK',async()=>({...entry,format:'mp4',url:base+'feature.mp4'}));
   assert.equal(response.status,206);assert.deepEqual([...new Uint8Array(await response.arrayBuffer())],[4,5,6]);
+});
+
+test('untrusted, expired or stale edition grants never reach the media origin',async()=>{
+  const granted=deliver(entry,'PK',config)!;
+  const untrusted=deliver(entry,'PK',{...config,secret:randomBytes(32).toString('hex')})!;
+  let reads=0;
+  const storage:MediaOrigin={async read(){reads++;return {length:0,type:'video/mp2t',body:null};}};
+  const request=(url:string,row:RegistrySource|undefined,country:string|undefined,headers?:HeadersInit)=>
+    serveMedia(new Request(url,{headers}),config,storage,site,country,async()=>row);
+  for(const url of [untrusted.url,new URL('seg.ts',untrusted.url).href,base+'feature.mp4'])
+    assert.equal((await request(url,entry,'PK',{Range:'bytes=0-3'})).status,403);
+  for(const current of [undefined,{...entry,enabled:false},{...entry,id:'different'},
+    {...entry,target:{namespace:'tmdb',type:'movie',tmdbId:43}} as RegistrySource,
+    {...entry,updatedAt:new Date().toISOString()}, {...entry,url:base+'other.m3u8'}])
+    assert.equal((await request(granted.url,current,'PK')).status,403);
+  const expired=structuredClone(entry);
+  expired.supplierRelease!.rights.expiresAt=new Date(0).toISOString();
+  assert.equal((await request(granted.url,expired,'PK')).status,403);
+  for(const country of [undefined,'XX','US'])
+    assert.equal((await request(granted.url,entry,country)).status,403);
+  assert.equal((await request(granted.url,entry,'PK',{Origin:'https://other.invalid'})).status,403);
+  assert.equal(reads,0);
+  // Anonymous bearers in the same approved territory can reuse a current grant.
+  for(let i=0;i<2;i++) assert.equal((await request(granted.url,entry,'PK')).status,200);
+  assert.equal(reads,2);
 });

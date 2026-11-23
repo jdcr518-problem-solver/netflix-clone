@@ -1,4 +1,6 @@
 import 'server-only';
+import {reviewedProductionPolicy} from './policy.ts';
+import {productionOperation} from '../operations.ts';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { discoverImportPage, getFilmCandidate } from '../providers/index.ts';
@@ -12,7 +14,11 @@ import { PostgresRegistry } from '../database/registry.ts';
 
 const folder=()=>join(process.cwd(),'data');
 
-async function config() {
+async function config(secured:boolean) {
+  if(secured) {
+    const bytes=await readFile(join(folder(),'import-policy.local.json'));
+    return reviewedProductionPolicy(bytes,process.env.STREAMFRAME_POLICY_SHA256);
+  }
   try {
     return JSON.parse((await readFile(join(folder(),'import-policy.local.json'),'utf8')).replace(/^\uFEFF/,''));
   } catch (error) {
@@ -28,7 +34,8 @@ export function importStatus() {
 
 export async function runImport(mode:'due'|'now',signal?:AbortSignal) {
   const store=operatorRegistry();
-  const configuration=await config();
+  const identity=await productionOperation('sync');
+  const configuration=await config(Boolean(identity));
   const dependencies:Parameters<typeof synchronize>[2]={
     discover:(scope,page,size,signal)=>discoverImportPage(scope.provider,scope.collection,page,size,signal),
     get:getFilmCandidate,
