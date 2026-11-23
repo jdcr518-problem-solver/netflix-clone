@@ -47,7 +47,8 @@ async function main() {
       if(role==='scheduler') {
         const result=await db.query("SELECT state FROM streamframe.import_checkpoints WHERE id='publisher-sync'");
         const latest=result.rows[0]?.state?.history?.[0];
-        if(latest?.status!=='complete' || latest.playbackFailed!==0 || !(Date.parse(latest.endedAt)>Date.now()-86400000)) throw Error();
+        const age=Date.now()-Date.parse(latest?.endedAt);
+        if(latest?.status!=='complete' || latest.playbackFailed!==0 || !(age>=0 && age<86400000)) throw Error();
       }
     } finally {db.release();}
     if(role==='gateway') {
@@ -70,4 +71,4 @@ async function main() {
   }
   console.log(role+' '+mode+' passed.');
 }
-main().catch(()=>{console.error('Readiness check failed. Check arguments, private configuration and runtime dependencies.');process.exitCode=1;}).finally(closeDatabasePools);
+main().finally(closeDatabasePools).catch(()=>{console.error('Readiness check failed. Check arguments, private configuration and runtime dependencies.');process.exitCode=1;});
