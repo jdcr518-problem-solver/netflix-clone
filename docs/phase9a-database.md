@@ -240,3 +240,23 @@ least-privilege login provisioning, restore drills, provider TLS/pooler verifica
 production operator authentication, trustworthy geography, licensed media and CDN
 enforcement, job scheduling, monitoring, dependency security review and load tests.
 The initial service remains free to viewers, with no signup or subscription.
+
+## Media URL compatibility correction (migration 002)
+
+`001_registry.sql` remains byte-for-byte unchanged. The ordered migration runner
+validates the complete applied checksum prefix and applies only missing migrations
+in one transaction. Fresh installations apply 001 then 002; existing installations
+apply only 002. Dry-run changes nothing and repeated apply is a no-op.
+
+002 compares only the media extension without regard to case; the original URL
+and path casing are retained. HTTPS remains required with the same lowercase scheme
+as the application. Format mismatches, traversal segments, credentials, query strings,
+fragments, encoded characters, whitespace, backslashes and overlength URLs are rejected.
+It also permits an otherwise valid filename consisting of `.mp4`, which 001 rejected.
+The application still performs WHATWG URL parsing and full record/evidence validation;
+SQL constraints are defense in depth, not a replacement URL parser or rights reviewer.
+Other relational constraints (identity uniqueness, episode foreign keys, immutable
+revocations) intentionally strengthen the JSON representation rather than replace its
+validation. The corrected constraint validates existing rows before committing. If
+legacy SQL-only rows fail validation, the migration and ledger both roll back;
+operators must review those rows rather than silently discard or authorize them.

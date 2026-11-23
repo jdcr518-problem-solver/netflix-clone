@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { PGlite } from '@electric-sql/pglite';
 import pg from 'pg';
@@ -55,9 +56,9 @@ async function query(pool:SqlPool,sql:string,values?:unknown[]) {
 test('schema dry-run, transactional migrations, checksums and database constraints',async()=>{
   const pool=await embedded();
   try {
-    assert.equal((await migrateDatabase(pool)).pending.length,1);
+    assert.equal((await migrateDatabase(pool)).pending.length,2);
     assert.equal((await query(pool,"SELECT to_regclass('streamframe.sources') AS value")).rows[0].value,null);
-    assert.equal((await migrateDatabase(pool,true)).applied.length,1);
+    assert.equal((await migrateDatabase(pool,true)).applied.length,2);
     assert.deepEqual((await migrateDatabase(pool,true)).applied,[]);
     const store=new PostgresRegistry(pool,'operator','test');
     await store.migrate([source('one')],true);
@@ -236,12 +237,70 @@ test('native PostgreSQL driver and concurrent transaction integration (optional 
   try {
     const existing=await pool.query("SELECT to_regclass('streamframe.sources') AS relation");
     assert.equal(existing.rows[0].relation,null,'Use a fresh disposable database; tests never clear existing data.');
+    await installLegacy(pool);
     await migrateDatabase(pool,true);
     const store=new PostgresRegistry(pool,'operator','native-test');
+    await mediaCompatibility(store,pool);
     const results=await Promise.allSettled([store.mutate('add','',pending('same')),store.mutate('add','',pending('same'))]);
     assert.equal(results.filter(result=>result.status==='fulfilled').length,1);
-    assert.equal((await store.read()).length,1);
+    assert.equal((await store.read()).length,acceptedUrls.length+1);
     await assert.rejects(transaction(pool,async client=>{await client.query("INSERT INTO streamframe.providers(id) VALUES('rollback')");throw new Error('rollback');}));
     assert.equal((await pool.query("SELECT * FROM streamframe.providers WHERE id='rollback'")).rowCount,0);
+  } finally {await pool.end();}
+});
+
+async function installLegacy(pool:SqlPool) {
+  const sql=(await readFile(new URL('../db/migrations/001_registry.sql',import.meta.url),'utf8')).replace(/\r\n/g,'\n');
+  await query(pool,sql);
+  await query(pool,'CREATE TABLE streamframe.schema_migrations(name text PRIMARY KEY,checksum text NOT NULL,applied_at timestamptz NOT NULL DEFAULT clock_timestamp())');
+  await query(pool,'INSERT INTO streamframe.schema_migrations(name,checksum) VALUES($1,$2)',['001_registry.sql',createHash('sha256').update(sql).digest('hex')]);
+}
+const acceptedUrls:[string,'mp4'|'hls'][]=[
+  ['https://example.invalid/Film.MP4','mp4'],['https://example.invalid/Movie.Mp4','mp4'],
+  ['https://example.invalid/Playlist.M3U8','hls'],['https://example.invalid/Stream.m3U8','hls'],
+  ['https://example.invalid/lower.mp4','mp4'],['https://example.invalid/Stream.m3u8','hls'],
+  ['https://example.invalid/.mp4','mp4'],['https://example.invalid:8443/a@b.MP4','mp4']
+];
+async function mediaCompatibility(store:PostgresRegistry,pool:SqlPool) {
+  for(const [index,[url,format]] of acceptedUrls.entries()) {
+    const entry=source(`url-${index}`,{url,format});
+    validateRegistry({version:1,sources:[entry]},'tmdb');
+    assert.equal((await store.migrate([entry],true)).applied,true);
+    assert.equal((await store.read()).find(row=>row.id===entry.id)?.url,url);
+  }
+  for(const [index,url] of ['http://example.invalid/a.mp4','HTTPS://example.invalid/a.mp4',
+    'https://user:pass@example.invalid/a.mp4','https://example.invalid/a/../a.mp4',
+    'https://example.invalid/a/./a.mp4','https://example.invalid/a%20b.mp4',
+    'https://example.invalid/a.mp4?token=x','https://example.invalid/a.mp4#x',
+    'https://example.invalid/a\tb.mp4','https://example.invalid/a\\b.mp4',
+    'https://example.invalid/mismatch.m3u8','https://example.invalid/'+ 'a'.repeat(2048)+'.mp4'].entries()) {
+    const entry=source(`bad-url-${index}`,{url});
+    assert.throws(()=>validateRegistry({version:1,sources:[entry]},'tmdb'));
+    await assert.rejects(query(pool,'INSERT INTO streamframe.sources(id,record) VALUES($1,$2::jsonb)',[entry.id,JSON.stringify(entry)]),/check constraint/);
+  }
+}
+test('media URL constraint accepts application-valid casing and rejects unsafe SQL inserts',async()=>fixture(mediaCompatibility));
+test('002 upgrades existing rows without changing 001 and is repeatable',async()=>{
+  const pool=await embedded();
+  try {
+    await installLegacy(pool);
+    const store=new PostgresRegistry(pool,'operator','upgrade-test');
+    const old=source('existing');await store.migrate([old],true);
+    assert.deepEqual((await migrateDatabase(pool)).pending,['002_media_urls.sql']);
+    assert.deepEqual((await migrateDatabase(pool,true)).applied,['002_media_urls.sql']);
+    assert.deepEqual((await store.read())[0],old);
+    await mediaCompatibility(store,pool);
+    assert.deepEqual((await migrateDatabase(pool,true)).applied,[]);
+  } finally {await pool.end();}
+});
+test('invalid legacy rows roll back constraint upgrade and migration ledger atomically',async()=>{
+  const pool=await embedded();
+  try {
+    await installLegacy(pool);
+    const store=new PostgresRegistry(pool,'operator','upgrade-test');await store.migrate([source('legacy')],true);
+    await query(pool,`UPDATE streamframe.sources SET record=jsonb_set(record,'{url}','"https://example.invalid/a/../bad.mp4"')`);
+    await assert.rejects(migrateDatabase(pool,true),/check constraint/);
+    assert.deepEqual((await migrateDatabase(pool)).pending,['002_media_urls.sql']);
+    assert.equal((await query(pool,'SELECT count(*)::int AS n FROM streamframe.sources')).rows[0].n,1);
   } finally {await pool.end();}
 });
