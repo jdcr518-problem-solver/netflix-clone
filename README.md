@@ -57,3 +57,5 @@ it never falls back to local JSON. The separate demo player remains unchanged.
 For protected playback, package preparation, pricing assumptions, and the operator calculator, see [Production media delivery](docs/phase9b-hosting.md).
 
 Private production worker, gateway, and emergency procedures are documented in [Phase 9C operations](docs/phase9c-operations.md).
+
+[Private staging configuration, probes and pilot acceptance](docs/private-staging.md)
