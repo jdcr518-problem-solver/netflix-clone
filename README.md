@@ -59,3 +59,5 @@ For protected playback, package preparation, pricing assumptions, and the operat
 Private production worker, gateway, and emergency procedures are documented in [Phase 9C operations](docs/phase9c-operations.md).
 
 [Private staging configuration, probes and pilot acceptance](docs/private-staging.md)
+
+[Vercel private beta setup and service limitations](docs/vercel-private-beta.md)
